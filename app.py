@@ -160,6 +160,16 @@ def render_ahp(fuzzy=False):
     else:
         st.header("Analytic Hierarchy Process (AHP)")
     
+    # Fuzzy Input Mode Selection
+    fuzzy_mode = "Standard Scale (1-9)"
+    if fuzzy:
+        fuzzy_mode = st.radio(
+            "Input Mode", 
+            ["Standard Scale (1-9)", "Manual TFN Input (Advanced)"],
+            horizontal=True,
+            key="fuzzy_input_mode"
+        )
+    
     # Number of Criteria
     st.number_input(
         "Number of Criteria", 
@@ -183,9 +193,15 @@ def render_ahp(fuzzy=False):
         )
     
     st.subheader("Pairwise Comparison Matrix")
-    st.write("For each pair, select which criterion is more important and by how much (1-9).")
-    
-    matrix = np.ones((num_criteria, num_criteria))
+    if fuzzy and fuzzy_mode == "Manual TFN Input (Advanced)":
+        st.write("For each pair, define the Triangular Fuzzy Number (Lower, Middle, Upper).")
+        matrix = np.zeros((num_criteria, num_criteria, 3))
+        # Initialize diagonal with (1,1,1)
+        for i in range(num_criteria):
+            matrix[i, i] = (1, 1, 1)
+    else:
+        st.write("For each pair, select which criterion is more important and by how much (1-9).")
+        matrix = np.ones((num_criteria, num_criteria))
     
     for i in range(num_criteria):
         for j in range(i + 1, num_criteria):
@@ -214,33 +230,71 @@ def render_ahp(fuzzy=False):
             with col2:
                 if winner == "Equal":
                     intensity = 1
+                    tfn = (1.0, 1.0, 1.0)
                     st.write("Equal Importance")
                 else:
-                    intensity = st.slider(
-                        f"Intensity for {winner}",
-                        min_value=1, max_value=9, 
-                        value=int(saved_pair['intensity']),
-                        key=f"int_{i}_{j}"
-                    )
+                    if fuzzy and fuzzy_mode == "Manual TFN Input (Advanced)":
+                        # Manual TFN Input
+                        saved_tfn = saved_pair.get('tfn', (1.0, 1.0, 1.0))
+                        c1, c2, c3 = st.columns(3)
+                        l = c1.number_input("L", value=float(saved_tfn[0]), key=f"l_{i}_{j}", step=0.1)
+                        m = c2.number_input("M", value=float(saved_tfn[1]), key=f"m_{i}_{j}", step=0.1)
+                        u = c3.number_input("U", value=float(saved_tfn[2]), key=f"u_{i}_{j}", step=0.1)
+                        
+                        if l > m or m > u:
+                            st.warning("Ensure L <= M <= U")
+                        
+                        intensity = m # Use middle for intensity placeholder
+                        tfn = (l, m, u)
+                    else:
+                        # Standard Slider
+                        intensity = st.slider(
+                            f"Intensity for {winner}",
+                            min_value=1, max_value=9, 
+                            value=int(saved_pair['intensity']),
+                            key=f"int_{i}_{j}"
+                        )
+                        tfn = None # Not used in crisp mode
             
             # Update model immediately
-            st.session_state.model["ahp_pairwise"][pair_key] = {'winner': winner, 'intensity': intensity}
+            st.session_state.model["ahp_pairwise"][pair_key] = {'winner': winner, 'intensity': intensity, 'tfn': tfn}
             
             # Update local matrix for calculation
-            if winner == criteria_names[i]:
-                matrix[i, j] = intensity
-                matrix[j, i] = 1 / intensity
-            elif winner == criteria_names[j]:
-                matrix[i, j] = 1 / intensity
-                matrix[j, i] = intensity
+            if fuzzy and fuzzy_mode == "Manual TFN Input (Advanced)":
+                if winner == "Equal":
+                     matrix[i, j] = (1, 1, 1)
+                     matrix[j, i] = (1, 1, 1)
+                elif winner == criteria_names[i]:
+                    matrix[i, j] = tfn
+                    # Reciprocal: (1/u, 1/m, 1/l)
+                    if tfn[0] != 0 and tfn[1] != 0 and tfn[2] != 0:
+                        matrix[j, i] = (1/tfn[2], 1/tfn[1], 1/tfn[0])
+                    else:
+                         matrix[j, i] = (0, 0, 0) # Handle zero division risk?
+                elif winner == criteria_names[j]:
+                    # Reciprocal logic inverted
+                    matrix[j, i] = tfn
+                    if tfn[0] != 0 and tfn[1] != 0 and tfn[2] != 0:
+                        matrix[i, j] = (1/tfn[2], 1/tfn[1], 1/tfn[0])
             else:
-                matrix[i, j] = 1.0
-                matrix[j, i] = 1.0
+                # Standard Crisp Logic
+                if winner == criteria_names[i]:
+                    matrix[i, j] = intensity
+                    matrix[j, i] = 1 / intensity
+                elif winner == criteria_names[j]:
+                    matrix[i, j] = 1 / intensity
+                    matrix[j, i] = intensity
+                else:
+                    matrix[i, j] = 1.0
+                    matrix[j, i] = 1.0
     
     if st.button("Calculate Weights"):
         try:
             if fuzzy:
-                engine = FuzzyAHPEngine(matrix, criteria_names)
+                if fuzzy_mode == "Manual TFN Input (Advanced)":
+                    engine = FuzzyAHPEngine(matrix, criteria_names, input_type="fuzzy")
+                else:
+                    engine = FuzzyAHPEngine(matrix, criteria_names, input_type="crisp")
             else:
                 engine = AHPEngine(matrix, criteria_names)
             

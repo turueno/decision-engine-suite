@@ -1,17 +1,25 @@
 import numpy as np
 
 class FuzzyAHPEngine:
-    def __init__(self, criteria_matrix, criteria_names=None):
+    def __init__(self, criteria_matrix, criteria_names=None, input_type="crisp"):
         """
         Initialize the Fuzzy AHP Engine.
         
         Args:
-            criteria_matrix (list or np.array): Matrix of crisp comparisons (1-9).
-                                              Will be converted to TFNs internally.
+            criteria_matrix (list or np.array): Matrix of comparisons.
+                                              If input_type="crisp", expects 1-9 scale.
+                                              If input_type="fuzzy", expects (n, n, 3) array of TFNs.
             criteria_names (list, optional): List of names for the criteria.
+            input_type (str): "crisp" or "fuzzy".
         """
-        self.crisp_matrix = np.array(criteria_matrix, dtype=float)
-        self.n = self.crisp_matrix.shape[0]
+        self.input_type = input_type
+        if input_type == "fuzzy":
+            self.fuzzy_matrix = np.array(criteria_matrix, dtype=float)
+            self.n = self.fuzzy_matrix.shape[0]
+        else:
+            self.crisp_matrix = np.array(criteria_matrix, dtype=float)
+            self.n = self.crisp_matrix.shape[0]
+            
         self.criteria_names = criteria_names if criteria_names else [f"C{i+1}" for i in range(self.n)]
         
         # TFN Scale: (l, m, u)
@@ -35,7 +43,9 @@ class FuzzyAHPEngine:
             9: (9, 9, 9)
         }
         
-        self.fuzzy_matrix = self._fuzzify_matrix()
+        if input_type == "crisp":
+            self.fuzzy_matrix = self._fuzzify_matrix()
+            
         self.weights = None
 
     def _get_tfn(self, value):
