@@ -564,7 +564,7 @@ def render_promethee(use_ahp_weights=False):
             results = promethee.calculate_flows()
             
             st.success("Ranking Calculated!")
-        st.dataframe(results.style.highlight_max(axis=0, subset=['Net Phi']), width='stretch')
+            st.dataframe(results.style.highlight_max(axis=0, subset=['Net Phi']), width='stretch')
             
             st.bar_chart(results.set_index('Alternative')['Net Phi'])
             
