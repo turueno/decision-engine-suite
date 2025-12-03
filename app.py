@@ -7,6 +7,7 @@ from decision_engine.topsis import TOPSISEngine
 from decision_engine.fuzzy_ahp import FuzzyAHPEngine
 from decision_engine.promethee import PrometheeEngine
 from decision_engine.scenario_manager import ScenarioManager
+from decision_engine.group_ahp import GroupAHPEngine
 import json
 
 st.set_page_config(page_title="Decision Engine Suite", layout="wide")
@@ -165,7 +166,10 @@ mode = st.sidebar.selectbox("Select Mode", [
     "PROMETHEE (Ranking)",
     "Combined (AHP + TOPSIS)", 
     "Combined (Fuzzy AHP + TOPSIS)",
-    "Combined (AHP + PROMETHEE)"
+    "Combined (AHP + TOPSIS)", 
+    "Combined (Fuzzy AHP + TOPSIS)",
+    "Combined (AHP + PROMETHEE)",
+    "Group AHP Aggregator"
 ])
 
 # Scenario Management Section
@@ -751,6 +755,82 @@ def render_promethee(use_ahp_weights=False):
         except Exception as e:
             st.error(f"Error: {e}")
 
+def render_group_ahp():
+    st.header("Group AHP Aggregator")
+    st.info("Upload multiple JSON scenario files from different judges to aggregate their judgments.")
+    
+    uploaded_files = st.file_uploader("Upload Judge Files (JSON)", type="json", accept_multiple_files=True)
+    
+    if uploaded_files:
+        if len(uploaded_files) < 2:
+            st.warning("Please upload at least 2 files to perform aggregation.")
+            return
+            
+        matrices = []
+        judge_names = []
+        criteria_names = None
+        
+        try:
+            for file in uploaded_files:
+                data = json.load(file)
+                # Extract matrix
+                n = data.get("num_criteria", 3)
+                c_names = data.get("criteria_names", [])
+                
+                if criteria_names is None:
+                    criteria_names = c_names
+                elif c_names != criteria_names:
+                    st.error(f"Criteria mismatch in file {file.name}. All files must use the same criteria.")
+                    return
+                
+                matrix = np.ones((n, n))
+                pairwise = data.get("ahp_pairwise", {})
+                
+                # We need to reconstruct the matrix from the saved pairwise data
+                for key, val in pairwise.items():
+                    parts = key.split("_")
+                    if len(parts) == 2:
+                        i, j = int(parts[0]), int(parts[1])
+                        winner = val['winner']
+                        intensity = val['intensity']
+                        
+                        if winner == criteria_names[i]:
+                            matrix[i, j] = intensity
+                            matrix[j, i] = 1 / intensity
+                        elif winner == criteria_names[j]:
+                            matrix[i, j] = 1 / intensity
+                            matrix[j, i] = intensity
+                
+                matrices.append(matrix)
+                judge_names.append(data.get("scenario_name", file.name))
+            
+            st.success(f"Loaded {len(matrices)} matrices from: {', '.join(judge_names)}")
+            
+            if st.button("Aggregate & Calculate"):
+                group_engine = GroupAHPEngine(matrices, criteria_names)
+                results = group_engine.get_results()
+                
+                st.subheader("Group Results")
+                st.success("Aggregation Complete (Geometric Mean Method)")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.subheader("Group Weights")
+                    weights_df = pd.DataFrame(list(results['weights'].items()), columns=['Criterion', 'Weight'])
+                    st.dataframe(weights_df)
+                    
+                    # Export Group Weights
+                    csv_data = ScenarioManager.export_results_csv(results['weights'], "weights")
+                    st.download_button("Download Group Weights (CSV)", csv_data, "group_weights.csv", "text/csv")
+                    
+                with col2:
+                    st.subheader("Consensus Info")
+                    st.metric("Group Consistency Ratio", f"{results['consistency_ratio']:.4f}")
+                    st.write(f"Number of Judges: {results['num_judges']}")
+                    
+        except Exception as e:
+            st.error(f"Error processing files: {e}")
+
 if mode == "AHP (Weights)":
     render_ahp(fuzzy=False)
 elif mode == "Fuzzy AHP (Weights)":
@@ -786,3 +866,5 @@ elif mode == "Combined (AHP + PROMETHEE)":
         render_promethee(use_ahp_weights=True)
     else:
         st.info("Please calculate weights in Step 1 to proceed.")
+elif mode == "Group AHP Aggregator":
+    render_group_ahp()
