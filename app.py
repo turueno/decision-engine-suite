@@ -7,7 +7,7 @@ from decision_engine.topsis import TOPSISEngine
 from decision_engine.fuzzy_ahp import FuzzyAHPEngine
 from decision_engine.promethee import PrometheeEngine
 from decision_engine.scenario_manager import ScenarioManager
-from decision_engine.group_ahp import GroupAHPEngine
+from decision_engine.group_ahp import GroupDecisionEngine
 import json
 
 st.set_page_config(page_title="Decision Engine Suite", layout="wide")
@@ -166,10 +166,8 @@ mode = st.sidebar.selectbox("Select Mode", [
     "PROMETHEE (Ranking)",
     "Combined (AHP + TOPSIS)", 
     "Combined (Fuzzy AHP + TOPSIS)",
-    "Combined (AHP + TOPSIS)", 
-    "Combined (Fuzzy AHP + TOPSIS)",
     "Combined (AHP + PROMETHEE)",
-    "Group AHP Aggregator"
+    "Group Decision Aggregator"
 ])
 
 # Scenario Management Section
@@ -756,8 +754,8 @@ def render_promethee(use_ahp_weights=False):
             st.error(f"Error: {e}")
 
 def render_group_ahp():
-    st.header("Group AHP Aggregator")
-    st.info("Upload multiple JSON scenario files from different judges to aggregate their judgments.")
+    st.header("Group Decision Aggregator")
+    st.info("Upload multiple JSON scenario files to aggregate judgments (AHP/Fuzzy) and/or decision matrices (TOPSIS/PROMETHEE).")
     
     uploaded_files = st.file_uploader("Upload Judge Files (JSON)", type="json", accept_multiple_files=True)
     
@@ -766,68 +764,137 @@ def render_group_ahp():
             st.warning("Please upload at least 2 files to perform aggregation.")
             return
             
-        matrices = []
+        pairwise_matrices = []
+        decision_matrices = []
         judge_names = []
         criteria_names = None
+        alternatives = None
         
         try:
             for file in uploaded_files:
                 data = json.load(file)
-                # Extract matrix
-                n = data.get("num_criteria", 3)
+                judge_names.append(data.get("scenario_name", file.name))
+                
+                # Check Metadata
                 c_names = data.get("criteria_names", [])
+                alt_names = data.get("alternative_names", []) # Assuming this exists or we infer
                 
                 if criteria_names is None:
                     criteria_names = c_names
                 elif c_names != criteria_names:
-                    st.error(f"Criteria mismatch in file {file.name}. All files must use the same criteria.")
+                    st.error(f"Criteria mismatch in file {file.name}.")
                     return
-                
-                matrix = np.ones((n, n))
+                    
+                # Extract Pairwise Matrix (if exists)
                 pairwise = data.get("ahp_pairwise", {})
-                
-                # We need to reconstruct the matrix from the saved pairwise data
-                for key, val in pairwise.items():
-                    parts = key.split("_")
-                    if len(parts) == 2:
-                        i, j = int(parts[0]), int(parts[1])
-                        winner = val['winner']
-                        intensity = val['intensity']
+                if pairwise:
+                    n = data.get("num_criteria", 3)
+                    # Check if fuzzy by looking at first item
+                    is_fuzzy_input = False
+                    first_val = list(pairwise.values())[0]['intensity'] if pairwise else 1
+                    if isinstance(first_val, list) or (isinstance(first_val, (int, float)) and False): 
+                        # Simplified check, real check below
+                        pass
                         
-                        if winner == criteria_names[i]:
-                            matrix[i, j] = intensity
-                            matrix[j, i] = 1 / intensity
-                        elif winner == criteria_names[j]:
-                            matrix[i, j] = 1 / intensity
-                            matrix[j, i] = intensity
+                    matrix = np.empty((n, n), dtype=object) if "fuzzy" in str(data) or isinstance(list(pairwise.values())[0]['intensity'], list) else np.ones((n, n))
+                    
+                    # Fill diagonal
+                    for i in range(n):
+                        matrix[i, i] = (1, 1, 1) if matrix.dtype == object else 1.0
+                        
+                    for key, val in pairwise.items():
+                        parts = key.split("_")
+                        if len(parts) == 2:
+                            i, j = int(parts[0]), int(parts[1])
+                            winner = val['winner']
+                            intensity = val['intensity']
+                            
+                            # Handle Fuzzy TFN
+                            if isinstance(intensity, list):
+                                tfn = tuple(intensity)
+                                if winner == criteria_names[i]:
+                                    matrix[i, j] = tfn
+                                    if tfn[0]!=0 and tfn[1]!=0 and tfn[2]!=0:
+                                        matrix[j, i] = (1/tfn[2], 1/tfn[1], 1/tfn[0])
+                                    else:
+                                        matrix[j, i] = (0,0,0)
+                                elif winner == criteria_names[j]:
+                                    matrix[j, i] = tfn
+                                    if tfn[0]!=0 and tfn[1]!=0 and tfn[2]!=0:
+                                        matrix[i, j] = (1/tfn[2], 1/tfn[1], 1/tfn[0])
+                                    else:
+                                        matrix[i, j] = (0,0,0)
+                            # Handle Crisp
+                            else:
+                                if winner == criteria_names[i]:
+                                    matrix[i, j] = intensity
+                                    matrix[j, i] = 1 / intensity
+                                elif winner == criteria_names[j]:
+                                    matrix[i, j] = 1 / intensity
+                                    matrix[j, i] = intensity
+                    
+                    pairwise_matrices.append(matrix)
                 
-                matrices.append(matrix)
-                judge_names.append(data.get("scenario_name", file.name))
+                # Extract Decision Matrix (if exists)
+                dm = data.get("decision_matrix", {})
+                if dm:
+                    num_alt = data.get("num_alternatives", 3)
+                    num_crit = data.get("num_criteria", 3)
+                    d_mat = np.zeros((num_alt, num_crit))
+                    
+                    for key, val in dm.items():
+                        parts = key.split("_")
+                        if len(parts) == 2:
+                            r, c = int(parts[0]), int(parts[1])
+                            d_mat[r, c] = val
+                    
+                    decision_matrices.append(d_mat)
             
-            st.success(f"Loaded {len(matrices)} matrices from: {', '.join(judge_names)}")
+            st.success(f"Loaded files from: {', '.join(judge_names)}")
+            st.info(f"Found {len(pairwise_matrices)} Pairwise Matrices and {len(decision_matrices)} Decision Matrices.")
             
             if st.button("Aggregate & Calculate"):
-                group_engine = GroupAHPEngine(matrices, criteria_names)
+                group_engine = GroupDecisionEngine(
+                    matrices=pairwise_matrices if pairwise_matrices else None,
+                    decision_matrices=decision_matrices if decision_matrices else None,
+                    criteria_names=criteria_names
+                )
                 results = group_engine.get_results()
                 
                 st.subheader("Group Results")
-                st.success("Aggregation Complete (Geometric Mean Method)")
                 
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.subheader("Group Weights")
-                    weights_df = pd.DataFrame(list(results['weights'].items()), columns=['Criterion', 'Weight'])
-                    st.dataframe(weights_df)
+                # Display Weights
+                if "weights" in results:
+                    st.markdown("### Aggregated Weights (Geometric Mean)")
+                    if results.get("is_fuzzy"):
+                        st.caption("Derived from Fuzzy AHP aggregation")
                     
-                    # Export Group Weights
-                    csv_data = ScenarioManager.export_results_csv(results['weights'], "weights")
-                    st.download_button("Download Group Weights (CSV)", csv_data, "group_weights.csv", "text/csv")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        weights_df = pd.DataFrame(list(results['weights'].items()), columns=['Criterion', 'Weight'])
+                        st.dataframe(weights_df)
+                        csv_data = ScenarioManager.export_results_csv(results['weights'], "weights")
+                        st.download_button("Download Group Weights (CSV)", csv_data, "group_weights.csv", "text/csv")
+                    with col2:
+                        st.metric("Group Consistency Ratio", f"{results['consistency_ratio']:.4f}")
+
+                # Display Decision Matrix
+                if "aggregated_decision_matrix" in results:
+                    st.markdown("---")
+                    st.markdown("### Aggregated Decision Matrix (Arithmetic Mean)")
+                    adm = results["aggregated_decision_matrix"]
+                    df_adm = pd.DataFrame(adm, columns=criteria_names)
+                    st.dataframe(df_adm)
                     
-                with col2:
-                    st.subheader("Consensus Info")
-                    st.metric("Group Consistency Ratio", f"{results['consistency_ratio']:.4f}")
-                    st.write(f"Number of Judges: {results['num_judges']}")
-                    
+                    # Option to use this data
+                    if st.button("Use Aggregated Data for Analysis"):
+                        st.session_state.model["ahp_weights"] = results.get("weights")
+                        # Flatten decision matrix to session state format
+                        for r in range(adm.shape[0]):
+                            for c in range(adm.shape[1]):
+                                st.session_state.model["decision_matrix"][(r, c)] = adm[r, c]
+                        st.success("Data loaded into session! Go to TOPSIS or PROMETHEE mode to see results.")
+
         except Exception as e:
             st.error(f"Error processing files: {e}")
 
@@ -866,5 +933,5 @@ elif mode == "Combined (AHP + PROMETHEE)":
         render_promethee(use_ahp_weights=True)
     else:
         st.info("Please calculate weights in Step 1 to proceed.")
-elif mode == "Group AHP Aggregator":
+elif mode == "Group Decision Aggregator":
     render_group_ahp()
