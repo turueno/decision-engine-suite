@@ -6,6 +6,8 @@ from decision_engine.ahp import AHPEngine
 from decision_engine.topsis import TOPSISEngine
 from decision_engine.fuzzy_ahp import FuzzyAHPEngine
 from decision_engine.promethee import PrometheeEngine
+from decision_engine.scenario_manager import ScenarioManager
+import json
 
 st.set_page_config(page_title="Decision Engine Suite", layout="wide")
 
@@ -42,8 +44,21 @@ st.markdown("""
     [data-testid="stSidebar"] {
         background-color: #1E1E1E;
     }
-    [data-testid="stSidebar"] * {
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stMarkdown {
         color: #FFFFFF !important;
+    }
+    
+    /* Sidebar input fields should have dark text */
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] select,
+    [data-testid="stSidebar"] textarea {
+        color: #1E1E1E !important;
+        background-color: #FFFFFF !important;
     }
     
     /* Input Fields */
@@ -152,6 +167,44 @@ mode = st.sidebar.selectbox("Select Mode", [
     "Combined (Fuzzy AHP + TOPSIS)",
     "Combined (AHP + PROMETHEE)"
 ])
+
+# Scenario Management Section
+st.sidebar.markdown("---")
+st.sidebar.subheader("💾 Scenario Management")
+
+# Save Scenario
+scenario_name = st.sidebar.text_input("Scenario Name", value="My Scenario")
+if st.sidebar.button("Save Scenario"):
+    try:
+        scenario_data = ScenarioManager.save_scenario(st.session_state.model, scenario_name)
+        json_str = json.dumps(scenario_data, indent=2)
+        st.sidebar.download_button(
+            label="📥 Download JSON",
+            data=json_str,
+            file_name=f"{scenario_name.replace(' ', '_')}.json",
+            mime="application/json"
+        )
+        st.sidebar.success("Scenario ready for download!")
+    except Exception as e:
+        st.sidebar.error(f"Error saving: {e}")
+
+# Load Scenario
+uploaded_file = st.sidebar.file_uploader("Load Scenario", type="json", key="scenario_uploader")
+if uploaded_file is not None:
+    # Use a flag to prevent infinite rerun loop
+    file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+    if st.session_state.get("last_loaded_file") != file_id:
+        try:
+            json_data = json.load(uploaded_file)
+            loaded_model = ScenarioManager.load_scenario(json_data)
+            st.session_state.model = loaded_model
+            st.session_state.last_loaded_file = file_id
+            st.sidebar.success(f"Loaded: {json_data.get('scenario_name', 'Unnamed')}")
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Error loading: {e}")
+
+st.sidebar.markdown("---")
 
 def render_ahp(fuzzy=False):
     if fuzzy:
@@ -317,10 +370,35 @@ def render_ahp(fuzzy=False):
                         st.success("The matrix is consistent.")
                     else:
                         st.error("The matrix is inconsistent (CR > 0.1). Please revise comparisons.")
-                else:
-                    st.subheader("Method Info")
-                    st.write("Method: Buckley's Geometric Mean")
-                    st.write("Defuzzification: Center of Area")
+            
+            # Export Results
+            st.markdown("---")
+            st.subheader("📊 Export Results")
+            col_exp1, col_exp2 = st.columns(2)
+            with col_exp1:
+                csv_data = ScenarioManager.export_results_csv(results['weights'], "weights")
+                st.download_button(
+                    "📄 Download CSV",
+                    data=csv_data,
+                    file_name="ahp_weights.csv",
+                    mime="text/csv"
+                )
+            with col_exp2:
+                excel_data = ScenarioManager.export_results_excel(
+                    {"scenario_name": scenario_name, "num_criteria": num_criteria, "criteria_names": criteria_names},
+                    {"weights": results['weights']}
+                )
+                st.download_button(
+                    "📊 Download Excel",
+                    data=excel_data,
+                    file_name="ahp_results.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            
+            if fuzzy:
+                st.subheader("Method Info")
+                st.write("Method: Buckley's Geometric Mean")
+                st.write("Defuzzification: Center of Area")
                     
         except Exception as e:
             st.error(f"Error: {e}")
@@ -457,6 +535,30 @@ def render_topsis(use_ahp_weights=False):
             
             # Chart
             st.bar_chart(results.set_index('Alternative')['Score'])
+            
+            # Export Results
+            st.markdown("---")
+            st.subheader("📊 Export Results")
+            col_exp1, col_exp2 = st.columns(2)
+            with col_exp1:
+                csv_data = ScenarioManager.export_results_csv(results, "topsis")
+                st.download_button(
+                    "📄 Download CSV",
+                    data=csv_data,
+                    file_name="topsis_results.csv",
+                    mime="text/csv"
+                )
+            with col_exp2:
+                excel_data = ScenarioManager.export_results_excel(
+                    {"scenario_name": scenario_name, "num_criteria": num_criteria, "num_alternatives": num_alternatives, "criteria_names": criteria_names},
+                    {"ranking": results}
+                )
+                st.download_button(
+                    "📊 Download Excel",
+                    data=excel_data,
+                    file_name="topsis_results.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
             
         except Exception as e:
             st.error(f"Error: {e}")
@@ -621,6 +723,30 @@ def render_promethee(use_ahp_weights=False):
             st.dataframe(results.style.highlight_max(axis=0, subset=['Net Phi']), width='stretch')
             
             st.bar_chart(results.set_index('Alternative')['Net Phi'])
+            
+            # Export Results
+            st.markdown("---")
+            st.subheader("📊 Export Results")
+            col_exp1, col_exp2 = st.columns(2)
+            with col_exp1:
+                csv_data = ScenarioManager.export_results_csv(results, "promethee")
+                st.download_button(
+                    "📄 Download CSV",
+                    data=csv_data,
+                    file_name="promethee_results.csv",
+                    mime="text/csv"
+                )
+            with col_exp2:
+                excel_data = ScenarioManager.export_results_excel(
+                    {"scenario_name": scenario_name, "num_criteria": num_criteria, "num_alternatives": num_alternatives, "criteria_names": criteria_names},
+                    {"ranking": results}
+                )
+                st.download_button(
+                    "📊 Download Excel",
+                    data=excel_data,
+                    file_name="promethee_results.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
             
         except Exception as e:
             st.error(f"Error: {e}")
