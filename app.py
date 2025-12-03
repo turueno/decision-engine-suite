@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
 from decision_engine.ahp import AHPEngine
 from decision_engine.topsis import TOPSISEngine
 from decision_engine.fuzzy_ahp import FuzzyAHPEngine
@@ -137,6 +138,11 @@ def update_model(key, index=None, index2=None):
         st.session_state.model["decision_matrix"][(index, index2)] = val
 
 # Sidebar for navigation
+if os.path.exists("logo.png"):
+    st.sidebar.image("logo.png", width='stretch')
+else:
+    st.sidebar.markdown("## PROVOKERS")
+
 mode = st.sidebar.selectbox("Select Mode", [
     "AHP (Weights)", 
     "Fuzzy AHP (Weights)", 
@@ -558,7 +564,7 @@ def render_promethee(use_ahp_weights=False):
             results = promethee.calculate_flows()
             
             st.success("Ranking Calculated!")
-            st.dataframe(results.style.highlight_max(axis=0, subset=['Net Phi']), use_container_width=True)
+        st.dataframe(results.style.highlight_max(axis=0, subset=['Net Phi']), width='stretch')
             
             st.bar_chart(results.set_index('Alternative')['Net Phi'])
             
