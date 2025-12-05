@@ -8,6 +8,7 @@ from decision_engine.fuzzy_ahp import FuzzyAHPEngine
 from decision_engine.promethee import PrometheeEngine
 from decision_engine.scenario_manager import ScenarioManager
 from decision_engine.group_ahp import GroupDecisionEngine
+from decision_engine.anp import ANPEngine
 import json
 
 st.set_page_config(page_title="Decision Engine Suite", layout="wide")
@@ -167,7 +168,8 @@ mode = st.sidebar.selectbox("Select Mode", [
     "Combined (AHP + TOPSIS)", 
     "Combined (Fuzzy AHP + TOPSIS)",
     "Combined (AHP + PROMETHEE)",
-    "Group Decision Aggregator"
+    "Group Decision Aggregator",
+    "ANP (Network)"
 ])
 
 # Scenario Management Section
@@ -753,6 +755,141 @@ def render_promethee(use_ahp_weights=False):
         except Exception as e:
             st.error(f"Error: {e}")
 
+def render_anp():
+    st.header("Analytic Network Process (ANP)")
+    st.info("Model complex decisions with dependencies and feedback loops.")
+    
+    # Initialize ANP State
+    if "anp_clusters" not in st.session_state:
+        st.session_state.anp_clusters = ["Goal", "Criteria", "Alternatives"]
+    if "anp_nodes" not in st.session_state:
+        st.session_state.anp_nodes = {
+            "Goal": ["Best Choice"],
+            "Criteria": ["C1", "C2"],
+            "Alternatives": ["A1", "A2"]
+        }
+    if "anp_connections" not in st.session_state:
+        st.session_state.anp_connections = [] # List of (source, target)
+        
+    tab1, tab2, tab3 = st.tabs(["1. Network Definition", "2. Supermatrix Input", "3. Results"])
+    
+    with tab1:
+        st.subheader("Define Clusters & Nodes")
+        
+        # Cluster Management
+        col_c1, col_c2 = st.columns([3, 1])
+        with col_c1:
+            new_cluster = st.text_input("New Cluster Name")
+        with col_c2:
+            if st.button("Add Cluster"):
+                if new_cluster and new_cluster not in st.session_state.anp_clusters:
+                    st.session_state.anp_clusters.append(new_cluster)
+                    st.session_state.anp_nodes[new_cluster] = []
+                    st.rerun()
+        
+        # Node Management
+        selected_cluster = st.selectbox("Select Cluster to Edit", st.session_state.anp_clusters)
+        
+        col_n1, col_n2 = st.columns([3, 1])
+        with col_n1:
+            new_node = st.text_input("New Node Name")
+        with col_n2:
+            if st.button("Add Node"):
+                if new_node and new_node not in st.session_state.anp_nodes[selected_cluster]:
+                    st.session_state.anp_nodes[selected_cluster].append(new_node)
+                    st.rerun()
+                    
+        st.write(f"**Nodes in {selected_cluster}:**", ", ".join(st.session_state.anp_nodes[selected_cluster]))
+        
+        st.markdown("---")
+        st.subheader("Define Influences (Connections)")
+        st.caption("Select a Target Node and check the Source Nodes that influence it.")
+        
+        # Flatten nodes for selection
+        all_nodes = []
+        for c in st.session_state.anp_clusters:
+            all_nodes.extend(st.session_state.anp_nodes[c])
+            
+        target_node = st.selectbox("Target Node (Who is influenced?)", all_nodes)
+        
+        # Pre-select existing connections
+        current_sources = [src for src, tgt in st.session_state.anp_connections if tgt == target_node]
+        
+        with st.form("connections_form"):
+            sources = st.multiselect("Source Nodes (Who influences the target?)", all_nodes, default=current_sources)
+            if st.form_submit_button("Save Connections"):
+                # Remove old connections for this target
+                st.session_state.anp_connections = [c for c in st.session_state.anp_connections if c[1] != target_node]
+                # Add new
+                for src in sources:
+                    st.session_state.anp_connections.append((src, target_node))
+                st.success(f"Connections for {target_node} updated!")
+                
+    with tab2:
+        st.subheader("Unweighted Supermatrix")
+        st.caption("Enter the influence weights directly. Columns must sum to 1 (Stochastic).")
+        
+        # Build DataFrame for Supermatrix
+        n = len(all_nodes)
+        if n > 0:
+            # Initialize if not exists or size changed
+            if "anp_supermatrix" not in st.session_state or st.session_state.anp_supermatrix.shape != (n, n):
+                st.session_state.anp_supermatrix = np.zeros((n, n))
+            
+            # Create a DataFrame for editing
+            df_sm = pd.DataFrame(
+                st.session_state.anp_supermatrix,
+                index=all_nodes,
+                columns=all_nodes
+            )
+            
+            # Highlight valid connections (optional visual cue)
+            edited_df = st.data_editor(df_sm, key="sm_editor", height=400)
+            
+            # Update session state
+            st.session_state.anp_supermatrix = edited_df.values
+            
+            # Validation
+            col_sums = edited_df.sum(axis=0)
+            if not np.allclose(col_sums, 1.0) and not np.allclose(col_sums, 0.0):
+                st.warning("Warning: Some columns do not sum to 1. Results may be inaccurate.")
+        else:
+            st.info("Define nodes first.")
+            
+    with tab3:
+        st.subheader("Results")
+        if st.button("Calculate ANP"):
+            try:
+                engine = ANPEngine(
+                    st.session_state.anp_clusters,
+                    st.session_state.anp_nodes,
+                    st.session_state.anp_connections
+                )
+                
+                # Set the matrix from Step 2
+                engine.set_unweighted_supermatrix(st.session_state.anp_supermatrix)
+                
+                # Calculate Limit Matrix
+                limit_matrix = engine.calculate_limit_matrix()
+                priorities = engine.get_priorities()
+                
+                st.success("Calculation Complete!")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("### Global Priorities")
+                    # Sort by priority
+                    sorted_priorities = sorted(priorities.items(), key=lambda x: x[1], reverse=True)
+                    df_p = pd.DataFrame(sorted_priorities, columns=["Node", "Priority"])
+                    st.dataframe(df_p, use_container_width=True)
+                    
+                with col2:
+                    st.markdown("### Limit Matrix")
+                    st.dataframe(pd.DataFrame(limit_matrix, index=all_nodes, columns=all_nodes))
+                    
+            except Exception as e:
+                st.error(f"Error: {e}")
+
 def render_group_ahp():
     st.header("Group Decision Aggregator")
     st.info("Upload multiple JSON scenario files to aggregate judgments (AHP/Fuzzy) and/or decision matrices (TOPSIS/PROMETHEE).")
@@ -935,3 +1072,5 @@ elif mode == "Combined (AHP + PROMETHEE)":
         st.info("Please calculate weights in Step 1 to proceed.")
 elif mode == "Group Decision Aggregator":
     render_group_ahp()
+elif mode == "ANP (Network)":
+    render_anp()
