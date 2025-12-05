@@ -762,12 +762,16 @@ def render_anp():
     # Initialize ANP State
     if "anp_clusters" not in st.session_state:
         st.session_state.anp_clusters = ["Goal", "Criteria", "Alternatives"]
+    
+    # Sync with Main Model (Always update to reflect changes in other tabs)
+    # We use setdefault to ensure structure exists, but overwrite content for sync
     if "anp_nodes" not in st.session_state:
-        st.session_state.anp_nodes = {
-            "Goal": ["Best Choice"],
-            "Criteria": ["C1", "C2"],
-            "Alternatives": ["A1", "A2"]
-        }
+        st.session_state.anp_nodes = {}
+        
+    # Force sync of Criteria and Alternatives from main model
+    st.session_state.anp_nodes["Goal"] = ["Best Choice"]
+    st.session_state.anp_nodes["Criteria"] = st.session_state.model["criteria_names"]
+    st.session_state.anp_nodes["Alternatives"] = st.session_state.model["alternatives"]
     if "anp_connections" not in st.session_state:
         st.session_state.anp_connections = [] # List of (source, target)
         
