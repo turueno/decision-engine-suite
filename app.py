@@ -1081,8 +1081,51 @@ def render_anp():
                     st.markdown("### Limit Matrix")
                     st.dataframe(pd.DataFrame(limit_matrix, index=all_nodes, columns=all_nodes))
                     
+                # Network Visualization
+                st.markdown("---")
+                st.subheader("🕸️ Network Visualization")
+                with st.expander("View Network Diagram", expanded=True):
+                    dot_source = render_anp_network(
+                        st.session_state.anp_clusters,
+                        st.session_state.anp_nodes,
+                        st.session_state.anp_connections
+                    )
+                    st.graphviz_chart(dot_source)
+                    
             except Exception as e:
                 st.error(f"Error: {e}")
+
+def render_anp_network(clusters, nodes, connections):
+    """Generates Graphviz DOT source for ANP network."""
+    dot = 'digraph ANP {\n'
+    dot += '  rankdir=LR;\n'
+    dot += '  node [shape=box, style=filled, fillcolor=lightblue, fontname="Arial"];\n'
+    dot += '  edge [color=gray50];\n'
+    
+    # Clusters
+    for i, cluster in enumerate(clusters):
+        dot += f'  subgraph cluster_{i} {{\n'
+        dot += f'    label = "{cluster}";\n'
+        dot += '    style=filled;\n'
+        dot += '    color=lightgrey;\n'
+        dot += '    node [style=filled, color=white];\n'
+        
+        cluster_nodes = nodes.get(cluster, [])
+        for node in cluster_nodes:
+            # Sanitize node name for DOT ID (remove spaces/special chars)
+            node_id = "".join(c for c in node if c.isalnum())
+            dot += f'    {node_id} [label="{node}"];\n'
+            
+        dot += '  }\n'
+        
+    # Edges
+    for src, tgt in connections:
+        src_id = "".join(c for c in src if c.isalnum())
+        tgt_id = "".join(c for c in tgt if c.isalnum())
+        dot += f'  {src_id} -> {tgt_id};\n'
+        
+    dot += '}'
+    return dot
 
 def render_group_ahp():
     st.header("Group Decision Aggregator")
