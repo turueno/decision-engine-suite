@@ -809,10 +809,14 @@ def render_anp():
             
             # Fill Criteria weights (influence on Goal)
             ahp_weights = st.session_state.model.get("ahp_weights", {})
+            st.write("Debug - AHP Weights:", ahp_weights) # DEBUG
+            
             if ahp_weights:
                 for crit, weight in ahp_weights.items():
                     if crit in df.index and "Best Choice" in df.columns:
                         df.loc[crit, "Best Choice"] = weight
+                    else:
+                        st.write(f"Debug - Mismatch: {crit} not in index or Best Choice not in cols") # DEBUG
             
             # Fill Alternative weights (influence on Criteria)
             # We use the Decision Matrix values (normalized) as local priorities
