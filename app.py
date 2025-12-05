@@ -1088,15 +1088,18 @@ def render_anp():
                     dot_source = render_anp_network(
                         st.session_state.anp_clusters,
                         st.session_state.anp_nodes,
-                        st.session_state.anp_connections
+                        st.session_state.anp_connections,
+                        priorities=priorities,
+                        supermatrix=st.session_state.anp_supermatrix, # Use unweighted SM for edge thickness
+                        all_nodes_list=all_nodes
                     )
                     st.graphviz_chart(dot_source)
                     
             except Exception as e:
                 st.error(f"Error: {e}")
 
-def render_anp_network(clusters, nodes, connections):
-    """Generates Graphviz DOT source for ANP network."""
+def render_anp_network(clusters, nodes, connections, priorities=None, supermatrix=None, all_nodes_list=None):
+    """Generates Graphviz DOT source for ANP network with dynamic sizing."""
     dot = 'digraph ANP {\n'
     dot += '  rankdir=LR;\n'
     dot += '  node [shape=box, style=filled, fillcolor=lightblue, fontname="Arial"];\n'
@@ -1112,9 +1115,27 @@ def render_anp_network(clusters, nodes, connections):
         
         cluster_nodes = nodes.get(cluster, [])
         for node in cluster_nodes:
-            # Sanitize node name for DOT ID (remove spaces/special chars)
             node_id = "".join(c for c in node if c.isalnum())
-            dot += f'    {node_id} [label="{node}"];\n'
+            
+            # Dynamic Sizing based on Priority
+            label = node
+            width = 1.0
+            fillcolor = "white"
+            
+            if priorities and node in priorities:
+                p = priorities[node]
+                # Scale width: base 1.0 + priority * 5
+                width = 1.0 + (p * 5.0)
+                label = f"{node}\\n({p:.3f})"
+                # Color intensity (white to blue)
+                # Simple heuristic: darker blue for higher priority? 
+                # Let's stick to size for now to keep it clean, or use a fixed color.
+                if p > 0.1:
+                    fillcolor = "lightblue"
+                if p > 0.3:
+                    fillcolor = "skyblue"
+            
+            dot += f'    {node_id} [label="{label}", width={width}, fillcolor={fillcolor}];\n'
             
         dot += '  }\n'
         
@@ -1122,7 +1143,27 @@ def render_anp_network(clusters, nodes, connections):
     for src, tgt in connections:
         src_id = "".join(c for c in src if c.isalnum())
         tgt_id = "".join(c for c in tgt if c.isalnum())
-        dot += f'  {src_id} -> {tgt_id};\n'
+        
+        # Dynamic Thickness based on Supermatrix Weight
+        penwidth = 1.0
+        label = ""
+        
+        if supermatrix is not None and all_nodes_list is not None:
+            try:
+                # Supermatrix: Col = Source, Row = Target
+                # Weight of Source influencing Target
+                if src in all_nodes_list and tgt in all_nodes_list:
+                    c_idx = all_nodes_list.index(src)
+                    r_idx = all_nodes_list.index(tgt)
+                    weight = supermatrix[r_idx, c_idx]
+                    
+                    if weight > 0:
+                        penwidth = 1.0 + (weight * 5.0)
+                        label = f"{weight:.2f}"
+            except:
+                pass
+        
+        dot += f'  {src_id} -> {tgt_id} [penwidth={penwidth}, label="{label}", fontsize=10];\n'
         
     dot += '}'
     return dot
