@@ -831,33 +831,135 @@ def render_anp():
                 st.success(f"Connections for {target_node} updated!")
                 
     with tab2:
-        st.subheader("Unweighted Supermatrix")
-        st.caption("Enter the influence weights directly. Columns must sum to 1 (Stochastic).")
+        st.subheader("Pairwise Comparisons (Wizard)")
+        st.info("Answer the comparisons to automatically fill the Supermatrix.")
         
         # Build DataFrame for Supermatrix
         n = len(all_nodes)
         if n > 0:
-            # Initialize if not exists or size changed
-            if "anp_supermatrix" not in st.session_state or st.session_state.anp_supermatrix.shape != (n, n):
-                st.session_state.anp_supermatrix = np.zeros((n, n))
+            # Check if we need to initialize or resize
+            current_matrix = st.session_state.get("anp_supermatrix")
             
-            # Create a DataFrame for editing
-            df_sm = pd.DataFrame(
-                st.session_state.anp_supermatrix,
-                index=all_nodes,
-                columns=all_nodes
-            )
+            if current_matrix is None:
+                # First time init
+                df_sm = pd.DataFrame(0.0, index=all_nodes, columns=all_nodes)
+                st.session_state.anp_supermatrix = df_sm.values
+            else:
+                # Check dimensions
+                if current_matrix.shape != (n, n):
+                    # Resize while preserving data
+                    # We need the OLD nodes list to reconstruct the old DataFrame
+                    # This is tricky because we don't store old_nodes explicitly.
+                    # Heuristic: Try to match by index if size is close, or just reset if too complex?
+                    # Better: Let's assume the user wants to keep values for same-named nodes.
+                    
+                    # Create a temporary DF from the current matrix with generic indices if we lost labels
+                    # Ideally we should store the DF in session state, not the numpy array.
+                    # Let's switch to storing the DataFrame in session state for better persistence.
+                    pass 
+
+            # Let's try a robust approach: Always reconstruct DF from session state if available
+            if "anp_df" not in st.session_state:
+                 st.session_state.anp_df = pd.DataFrame(0.0, index=all_nodes, columns=all_nodes)
             
-            # Highlight valid connections (optional visual cue)
-            edited_df = st.data_editor(df_sm, key="sm_editor", height=400)
+            # Reindex to match current all_nodes
+            st.session_state.anp_df = st.session_state.anp_df.reindex(index=all_nodes, columns=all_nodes, fill_value=0.0)
             
-            # Update session state
-            st.session_state.anp_supermatrix = edited_df.values
+            # --- WIZARD LOGIC ---
+            # 1. Identify Target Nodes (columns) that have connections
+            targets_with_sources = {}
+            for src, tgt in st.session_state.anp_connections:
+                if tgt not in targets_with_sources:
+                    targets_with_sources[tgt] = []
+                targets_with_sources[tgt].append(src)
+                
+            target_options = list(targets_with_sources.keys())
             
-            # Validation
-            col_sums = edited_df.sum(axis=0)
-            if not np.allclose(col_sums, 1.0) and not np.allclose(col_sums, 0.0):
-                st.warning("Warning: Some columns do not sum to 1. Results may be inaccurate.")
+            if not target_options:
+                st.warning("No connections defined. Go to Tab 1 to define influences.")
+            else:
+                selected_target = st.selectbox("Select Relationship to Evaluate", target_options, format_func=lambda x: f"Influences on '{x}'")
+                
+                sources = targets_with_sources[selected_target]
+                
+                if len(sources) < 2:
+                    st.warning(f"Node '{selected_target}' has only 1 source ('{sources[0]}'). Weight is automatically 1.0.")
+                    # Auto-set 1.0
+                    st.session_state.anp_df.loc[sources[0], selected_target] = 1.0
+                    st.session_state.anp_supermatrix = st.session_state.anp_df.values
+                else:
+                    st.markdown(f"**Compare influence of nodes on '{selected_target}':**")
+                    
+                    # Initialize pairwise matrix for this sub-problem
+                    sub_key = f"anp_pw_{selected_target}"
+                    n_sub = len(sources)
+                    
+                    if sub_key not in st.session_state:
+                         st.session_state[sub_key] = {}
+                         
+                    # Render Pairwise Inputs (Reusing logic from AHP)
+                    # We need a mini-loop here
+                    updated = False
+                    for i in range(n_sub):
+                        for j in range(i + 1, n_sub):
+                            node_i = sources[i]
+                            node_j = sources[j]
+                            
+                            col1, col2, col3 = st.columns([2, 6, 2])
+                            with col1:
+                                st.write(f"**{node_i}**")
+                            with col3:
+                                st.write(f"**{node_j}**")
+                            with col2:
+                                val = st.slider(
+                                    f"Importance", 
+                                    min_value=-9, max_value=9, value=0, step=1,
+                                    key=f"{sub_key}_{i}_{j}",
+                                    help="Negative favors left, Positive favors right"
+                                )
+                                
+                                # Convert slider (-9 to 9) to Saaty (1/9 to 9)
+                                if val == 0:
+                                    saaty_val = 1.0
+                                elif val > 0:
+                                    saaty_val = float(val) + (1 if val < 1 else 0) # 1 to 9
+                                else:
+                                    saaty_val = 1.0 / (abs(val) + (1 if abs(val) < 1 else 0))
+                                    
+                                # Store
+                                st.session_state[sub_key][(i, j)] = saaty_val
+                                updated = True
+
+                    # Calculate Local Weights
+                    if updated or st.button("Update Supermatrix"):
+                        # Build matrix
+                        mat = np.ones((n_sub, n_sub))
+                        for (i, j), val in st.session_state[sub_key].items():
+                            mat[i, j] = val
+                            mat[j, i] = 1.0 / val
+                            
+                        # Use AHPEngine to get vector
+                        # We create a dummy engine just for calculation
+                        try:
+                            # Simple Eigenvector calculation
+                            eigvals, eigvecs = np.linalg.eig(mat)
+                            max_index = np.argmax(np.abs(eigvals))
+                            eigvec = np.real(eigvecs[:, max_index])
+                            weights = eigvec / np.sum(eigvec)
+                            
+                            # Update Supermatrix DataFrame
+                            for idx, node in enumerate(sources):
+                                st.session_state.anp_df.loc[node, selected_target] = weights[idx]
+                                
+                            st.session_state.anp_supermatrix = st.session_state.anp_df.values
+                            st.toast(f"Updated weights for {selected_target}")
+                            
+                        except Exception as e:
+                            st.error(f"Calculation Error: {e}")
+
+            st.markdown("---")
+            st.caption("Current Supermatrix State (Read-Only Preview)")
+            st.dataframe(st.session_state.anp_df)
         else:
             st.info("Define nodes first.")
             
