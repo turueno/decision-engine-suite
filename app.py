@@ -223,6 +223,12 @@ if uploaded_file is not None:
 
 st.sidebar.markdown("---")
 
+# Debug Section
+with st.sidebar.expander("🐞 Debug Info"):
+    st.write("Decision Matrix Size:", len(st.session_state.model.get("decision_matrix", {})))
+    st.write("Raw DM Keys:", list(st.session_state.model.get("decision_matrix", {}).keys()))
+    st.write("AHP Weights:", st.session_state.model.get("ahp_weights", {}))
+
 def render_ahp(fuzzy=False):
     if fuzzy:
         st.header("Fuzzy Analytic Hierarchy Process")
