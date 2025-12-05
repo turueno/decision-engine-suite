@@ -1077,6 +1077,25 @@ def render_anp():
                     df_p = pd.DataFrame(sorted_priorities, columns=["Node", "Priority"])
                     st.dataframe(df_p, use_container_width=True)
                     
+                    # Normalized Alternatives Ranking
+                    st.markdown("### 🏆 Normalized Ranking (Alternatives)")
+                    alt_nodes = st.session_state.anp_nodes.get("Alternatives", [])
+                    if alt_nodes:
+                        alt_priorities = {k: v for k, v in priorities.items() if k in alt_nodes}
+                        total_alt_p = sum(alt_priorities.values())
+                        
+                        if total_alt_p > 0:
+                            norm_alt_priorities = {k: v/total_alt_p for k, v in alt_priorities.items()}
+                            sorted_norm = sorted(norm_alt_priorities.items(), key=lambda x: x[1], reverse=True)
+                            df_norm = pd.DataFrame(sorted_norm, columns=["Alternative", "Normalized Score"])
+                            st.dataframe(df_norm, use_container_width=True)
+                            
+                            # Winner
+                            winner = sorted_norm[0][0]
+                            st.success(f"**Winner:** {winner} ({norm_alt_priorities[winner]:.4f})")
+                        else:
+                            st.warning("Alternatives have 0 global priority. Check connections.")
+                    
                 with col2:
                     st.markdown("### Limit Matrix")
                     st.dataframe(pd.DataFrame(limit_matrix, index=all_nodes, columns=all_nodes))
