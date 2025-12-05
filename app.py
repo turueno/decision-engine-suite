@@ -139,6 +139,19 @@ def update_model(key, index=None, index2=None):
         elif new_n < old_n:
             st.session_state.model["alternatives"] = st.session_state.model["alternatives"][:new_n]
             
+    elif key.startswith("dm_"):
+        # Update Decision Matrix
+        # key format: dm_{i}_{j} or dm_p_{i}_{j}
+        parts = key.split("_")
+        if len(parts) >= 3:
+            # Handle both dm_i_j and dm_p_i_j
+            try:
+                c_idx = int(parts[-1])
+                r_idx = int(parts[-2])
+                st.session_state.model["decision_matrix"][(r_idx, c_idx)] = val
+            except ValueError:
+                pass
+            
     elif key.startswith("alt_name_"):
         st.session_state.model["alternatives"][index] = val
     elif key.startswith("w_"):
