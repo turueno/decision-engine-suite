@@ -817,8 +817,8 @@ def render_anp():
             
         target_node = st.selectbox("Target Node (Who is influenced?)", all_nodes)
         
-        # Pre-select existing connections
-        current_sources = [src for src, tgt in st.session_state.anp_connections if tgt == target_node]
+        # Pre-select existing connections (Filter out invalid nodes that might have been deleted/renamed)
+        current_sources = [src for src, tgt in st.session_state.anp_connections if tgt == target_node and src in all_nodes]
         
         with st.form("connections_form"):
             sources = st.multiselect("Source Nodes (Who influences the target?)", all_nodes, default=current_sources)
