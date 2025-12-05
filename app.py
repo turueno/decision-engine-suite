@@ -800,7 +800,6 @@ def render_anp():
             st.session_state.anp_connections = new_connections
             
             # 2. Import Weights into Supermatrix (via DataFrame)
-            # Initialize DF if needed
             all_nodes = []
             for c in st.session_state.anp_clusters:
                 all_nodes.extend(st.session_state.anp_nodes[c])
@@ -809,31 +808,30 @@ def render_anp():
             
             # Fill Criteria weights (influence on Goal)
             ahp_weights = st.session_state.model.get("ahp_weights", {})
-            st.write("Debug - AHP Weights:", ahp_weights) # DEBUG
             
-            if ahp_weights:
+            if not ahp_weights:
+                st.error("⚠️ No AHP Weights found! Please go to the 'AHP (Weights)' mode and click 'Calculate Weights' first.")
+            else:
+                st.write(f"Found {len(ahp_weights)} criteria weights.")
                 for crit, weight in ahp_weights.items():
                     if crit in df.index and "Best Choice" in df.columns:
                         df.loc[crit, "Best Choice"] = weight
-                    else:
-                        st.write(f"Debug - Mismatch: {crit} not in index or Best Choice not in cols") # DEBUG
             
             # Fill Alternative weights (influence on Criteria)
-            # We use the Decision Matrix values (normalized) as local priorities
             decision_matrix = st.session_state.model.get("decision_matrix", {})
             criteria_names = st.session_state.model.get("criteria_names", [])
             alternatives = st.session_state.model.get("alternatives", [])
             
             if decision_matrix and criteria_names and alternatives:
+                st.write(f"Found Decision Matrix with {len(alternatives)} alternatives.")
                 # Convert to numpy for easier column normalization
                 dm_array = np.zeros((len(alternatives), len(criteria_names)))
                 for (r, c), val in decision_matrix.items():
                     if r < len(alternatives) and c < len(criteria_names):
                         dm_array[r, c] = val
                         
-                # Normalize columns to sum to 1 (Standard AHP/ANP local priority assumption)
+                # Normalize columns to sum to 1
                 col_sums = dm_array.sum(axis=0)
-                # Avoid division by zero
                 col_sums[col_sums == 0] = 1.0
                 normalized_dm = dm_array / col_sums
                 
@@ -842,12 +840,14 @@ def render_anp():
                     for a_idx, alt in enumerate(alternatives):
                         if alt in df.index and crit in df.columns:
                             df.loc[alt, crit] = normalized_dm[a_idx, c_idx]
+            else:
+                st.warning("No Decision Matrix found. Alternative scores will be 0.")
             
             st.session_state.anp_df = df
             st.session_state.anp_supermatrix = df.values
             
-            st.success("Imported AHP Structure and Weights (Criteria & Alternatives)!")
-            st.rerun()
+            st.success("Import Process Completed! Check the 'Pairwise Comparisons' or 'Results' tab.")
+            # Removed st.rerun() to let user see messages
         
         # Cluster Management
         col_c1, col_c2 = st.columns([3, 1])
