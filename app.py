@@ -802,19 +802,19 @@ def render_anp():
         
         # Import Button
         if st.button("🔄 Import Structure from AHP Model"):
-            # 1. Define Standard Connections
-            # Criteria -> Goal (Best Choice)
-            # Alternatives -> Criteria
+            # 1. Define Standard Connections (Top-Down Hierarchy)
+            # Goal -> Criteria (Goal influences Criteria importance)
+            # Criteria -> Alternatives (Criteria influence Alternative scores)
             new_connections = []
             
-            # Criteria influence Goal
+            # Goal influences Criteria
             for crit in st.session_state.anp_nodes["Criteria"]:
-                new_connections.append((crit, "Best Choice"))
+                new_connections.append(("Best Choice", crit))
                 
-            # Alternatives influence Criteria
+            # Criteria influence Alternatives
             for alt in st.session_state.anp_nodes["Alternatives"]:
                 for crit in st.session_state.anp_nodes["Criteria"]:
-                    new_connections.append((alt, crit))
+                    new_connections.append((crit, alt))
             
             st.session_state.anp_connections = new_connections
             
