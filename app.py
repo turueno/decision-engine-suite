@@ -814,14 +814,35 @@ def render_anp():
                     if crit in df.index and "Best Choice" in df.columns:
                         df.loc[crit, "Best Choice"] = weight
             
-            # Note: We can't easily import Alternative scores unless we have local weights for each criterion
-            # Usually AHP stores global weights or we'd need to re-calculate local vectors.
-            # For now, we import the Criteria->Goal weights which is the most useful start.
+            # Fill Alternative weights (influence on Criteria)
+            # We use the Decision Matrix values (normalized) as local priorities
+            decision_matrix = st.session_state.model.get("decision_matrix", {})
+            criteria_names = st.session_state.model.get("criteria_names", [])
+            alternatives = st.session_state.model.get("alternatives", [])
+            
+            if decision_matrix and criteria_names and alternatives:
+                # Convert to numpy for easier column normalization
+                dm_array = np.zeros((len(alternatives), len(criteria_names)))
+                for (r, c), val in decision_matrix.items():
+                    if r < len(alternatives) and c < len(criteria_names):
+                        dm_array[r, c] = val
+                        
+                # Normalize columns to sum to 1 (Standard AHP/ANP local priority assumption)
+                col_sums = dm_array.sum(axis=0)
+                # Avoid division by zero
+                col_sums[col_sums == 0] = 1.0
+                normalized_dm = dm_array / col_sums
+                
+                # Populate Supermatrix
+                for c_idx, crit in enumerate(criteria_names):
+                    for a_idx, alt in enumerate(alternatives):
+                        if alt in df.index and crit in df.columns:
+                            df.loc[alt, crit] = normalized_dm[a_idx, c_idx]
             
             st.session_state.anp_df = df
             st.session_state.anp_supermatrix = df.values
             
-            st.success("Imported AHP Structure and Weights!")
+            st.success("Imported AHP Structure and Weights (Criteria & Alternatives)!")
             st.rerun()
         
         # Cluster Management
