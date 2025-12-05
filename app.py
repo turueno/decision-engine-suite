@@ -781,6 +781,49 @@ def render_anp():
     with tab1:
         st.subheader("Define Clusters & Nodes")
         
+        # Import Button
+        if st.button("🔄 Import Structure from AHP Model"):
+            # 1. Define Standard Connections
+            # Criteria -> Goal (Best Choice)
+            # Alternatives -> Criteria
+            new_connections = []
+            
+            # Criteria influence Goal
+            for crit in st.session_state.anp_nodes["Criteria"]:
+                new_connections.append((crit, "Best Choice"))
+                
+            # Alternatives influence Criteria
+            for alt in st.session_state.anp_nodes["Alternatives"]:
+                for crit in st.session_state.anp_nodes["Criteria"]:
+                    new_connections.append((alt, crit))
+            
+            st.session_state.anp_connections = new_connections
+            
+            # 2. Import Weights into Supermatrix (via DataFrame)
+            # Initialize DF if needed
+            all_nodes = []
+            for c in st.session_state.anp_clusters:
+                all_nodes.extend(st.session_state.anp_nodes[c])
+            
+            df = pd.DataFrame(0.0, index=all_nodes, columns=all_nodes)
+            
+            # Fill Criteria weights (influence on Goal)
+            ahp_weights = st.session_state.model.get("ahp_weights", {})
+            if ahp_weights:
+                for crit, weight in ahp_weights.items():
+                    if crit in df.index and "Best Choice" in df.columns:
+                        df.loc[crit, "Best Choice"] = weight
+            
+            # Note: We can't easily import Alternative scores unless we have local weights for each criterion
+            # Usually AHP stores global weights or we'd need to re-calculate local vectors.
+            # For now, we import the Criteria->Goal weights which is the most useful start.
+            
+            st.session_state.anp_df = df
+            st.session_state.anp_supermatrix = df.values
+            
+            st.success("Imported AHP Structure and Weights!")
+            st.rerun()
+        
         # Cluster Management
         col_c1, col_c2 = st.columns([3, 1])
         with col_c1:
