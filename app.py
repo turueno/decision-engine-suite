@@ -758,6 +758,7 @@ def render_promethee(use_ahp_weights=False):
 def render_anp():
     st.header("Analytic Network Process (ANP)")
     st.info("Model complex decisions with dependencies and feedback loops.")
+    st.caption("✅ Synced with Main Model (Criteria & Alternatives)")
     
     # Initialize ANP State
     if "anp_clusters" not in st.session_state:

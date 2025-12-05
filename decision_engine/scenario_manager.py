@@ -179,8 +179,9 @@ class ScenarioManager:
                 weights_df.to_excel(writer, sheet_name="Weights", index=False)
             
             # Results sheet
-            if results_data.get("ranking"):
-                results_df = pd.DataFrame(results_data["ranking"])
+            ranking = results_data.get("ranking")
+            if ranking is not None and not ranking.empty:
+                results_df = pd.DataFrame(ranking)
                 results_df.to_excel(writer, sheet_name="Results", index=False)
         
         output.seek(0)
