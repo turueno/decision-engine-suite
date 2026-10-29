@@ -1444,6 +1444,44 @@ def render_group_ahp():
             uploaded_files_data.append(json.load(file))
             
     if uploaded_files_data:
+        # Pre-filtration: Review judge inputs and select who to include
+        st.markdown("### 👥 Revisión y Selección de Evaluadores")
+        st.caption("Inspecciona los juicios individuales de cada evaluador y activa/desactiva su inclusión en el cálculo:")
+        
+        filtered_files_data = []
+        for idx, data in enumerate(uploaded_files_data):
+            j_name = data.get("scenario_name", f"Evaluador {idx+1}")
+            
+            with st.expander(f"👤 {j_name} (Inspeccionar juicios)", expanded=False):
+                # Show individual AHP judgments if present
+                if "ahp_pairwise" in data:
+                    st.markdown("**Comparaciones Pareadas (AHP):**")
+                    p_records = []
+                    for k, v in data["ahp_pairwise"].items():
+                        p_records.append({
+                            "Par": k,
+                            "Ganador": v.get("winner"),
+                            "Intensidad": v.get("intensity")
+                        })
+                    st.dataframe(pd.DataFrame(p_records), use_container_width=True)
+                
+                # Show Decision Matrix if present
+                if "decision_matrix" in data:
+                    st.markdown("**Matriz de Decisión (Alternativas x Criterios):**")
+                    dm_dict = data["decision_matrix"]
+                    st.write(dm_dict)
+            
+            # Checkbox to include/exclude this judge
+            include_judge = st.checkbox(f"✅ Incluir a **{j_name}** en la agregación final", value=True, key=f"include_j_{idx}")
+            if include_judge:
+                filtered_files_data.append(data)
+                
+        st.markdown("---")
+        
+        if len(filtered_files_data) < 2:
+            st.warning("⚠️ Debes tener al menos 2 evaluadores seleccionados para calcular la agregación grupal.")
+            return
+
         pairwise_matrices = []
         decision_matrices = []
         judge_names = []
@@ -1451,7 +1489,7 @@ def render_group_ahp():
         alternatives = None
         
         try:
-            for data in uploaded_files_data:
+            for data in filtered_files_data:
                 judge_names.append(data.get("scenario_name", "Anónimo"))
                 
                 # Check Metadata
