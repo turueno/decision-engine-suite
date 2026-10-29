@@ -1413,11 +1413,6 @@ def render_evaluator_portal(case_id):
                 case_repo.submit_evaluation(case_id, judge_name.strip(), submission_data)
                 st.success(f"🎉 ¡Muchas gracias, {judge_name}! Tu evaluación ha sido registrada con éxito.")
                 st.balloons()
-                    "decision_matrix": decision_matrix
-                }
-                case_repo.submit_evaluation(case_id, judge_name.strip(), submission_data)
-                st.success(f"🎉 ¡Muchas gracias, {judge_name}! Tu matriz de evaluación ha sido registrada.")
-                st.balloons()
 
 def render_group_ahp():
     st.header("Group Decision Aggregator")
