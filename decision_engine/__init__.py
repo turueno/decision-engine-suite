@@ -5,3 +5,4 @@ from .promethee import PrometheeEngine
 from .scenario_manager import ScenarioManager
 from .group_ahp import GroupDecisionEngine
 from .anp import ANPEngine
+from .case_repository import CaseRepository

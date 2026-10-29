@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from decision_engine.group_ahp import GroupAHPEngine
+from decision_engine.group_ahp import GroupDecisionEngine
 
 def test_group_aggregation():
     # Judge 1: A is much better than B (3)
@@ -19,7 +19,7 @@ def test_group_aggregation():
     # A vs B: (3 * 5)^(1/2) = sqrt(15) ≈ 3.87
     # B vs A: (1/3 * 1/5)^(1/2) = sqrt(1/15) ≈ 0.258
     
-    engine = GroupAHPEngine([m1, m2], ["A", "B"])
+    engine = GroupDecisionEngine(matrices=[m1, m2], criteria_names=["A", "B"])
     results = engine.get_results()
     
     agg_matrix = results['aggregated_matrix']

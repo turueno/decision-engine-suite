@@ -9,7 +9,10 @@ from decision_engine.promethee import PrometheeEngine
 from decision_engine.scenario_manager import ScenarioManager
 from decision_engine.group_ahp import GroupDecisionEngine
 from decision_engine.anp import ANPEngine
+from decision_engine.case_repository import CaseRepository
 import json
+
+case_repo = CaseRepository()
 
 st.set_page_config(page_title="Decision Engine Suite", layout="wide")
 
@@ -167,6 +170,13 @@ def update_model(key, index=None, index2=None):
     elif key.startswith("dm_"):
         st.session_state.model["decision_matrix"][(index, index2)] = val
 
+# Check Query Parameters for Direct Evaluator Link
+query_params = st.query_params
+if "case" in query_params:
+    case_id_param = query_params["case"]
+    render_evaluator_portal(case_id_param)
+    st.stop()
+
 # Sidebar for navigation
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width='stretch')
@@ -182,7 +192,8 @@ mode = st.sidebar.selectbox("Select Mode", [
     "Combined (Fuzzy AHP + TOPSIS)",
     "Combined (AHP + PROMETHEE)",
     "Group Decision Aggregator",
-    "ANP (Network)"
+    "ANP (Network)",
+    "🔗 Compartir Caso (Multi-Juez)"
 ])
 
 # Scenario Management Section
@@ -1187,17 +1198,219 @@ def render_anp_network(clusters, nodes, connections, priorities=None, supermatri
     dot += '}'
     return dot
 
+def render_share_case():
+    st.header("🔗 Compartir Caso para Evaluación Multi-Juez")
+    st.markdown("""
+    Crea un caso de evaluación centralizado y genera un enlace único para que diferentes jueces o evaluadores 
+    puedan calificarlo directamente desde su navegador (sin necesidad de instalar nada).
+    """)
+    
+    tab_create, tab_manage = st.tabs(["➕ Crear Nuevo Enlace de Caso", "📋 Casos Activos y Evaluaciones"])
+    
+    with tab_create:
+        st.subheader("Configuración del Caso Base")
+        case_title = st.text_input("Título del Caso / Proyecto", value="Evaluación de Proyecto Estratégico")
+        case_desc = st.text_area("Descripción / Instrucciones para los jueces", 
+                                 value="Por favor evalúa la importancia relativa de los criterios según tu juicio experto.")
+        
+        eval_type = st.selectbox("Tipo de Evaluación Requerida", [
+            "AHP - Comparación de Criterios",
+            "Matriz de Decisión (Alternativas x Criterios)"
+        ])
+        
+        st.info("ℹ️ Este caso usará los criterios y alternativas actualmente configurados en tu modelo.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**Criterios incluidos:**", st.session_state.model.get("criteria_names", []))
+        with col2:
+            st.write("**Alternativas incluidas:**", st.session_state.model.get("alternatives", []))
+            
+        if st.button("🚀 Generar Enlace de Evaluación"):
+            if not st.session_state.model.get("criteria_names"):
+                st.error("Debes tener al menos 2 criterios configurados.")
+            else:
+                config_data = {
+                    "criteria_names": st.session_state.model.get("criteria_names", []),
+                    "alternatives": st.session_state.model.get("alternatives", []),
+                    "num_criteria": len(st.session_state.model.get("criteria_names", [])),
+                    "num_alternatives": len(st.session_state.model.get("alternatives", []))
+                }
+                new_id = case_repo.create_case(case_title, eval_type, config_data, case_desc)
+                st.success(f"¡Caso creado exitosamente! Código: `{new_id}`")
+                
+                # Link generation (works both locally and in Railway)
+                share_url = f"?case={new_id}"
+                st.markdown(f"**Enlace para compartir a los evaluadores:**")
+                st.code(share_url, language="text")
+                st.caption("💡 *Nota: En Railway o servidor público, comparte la URL completa con este parámetro al final (ej: `https://tu-app.up.railway.app/?case=" + new_id + "`)*")
+                
+    with tab_manage:
+        st.subheader("Casos Creados")
+        cases = case_repo.list_cases()
+        if not cases:
+            st.info("Aún no has creado ningún caso compartido.")
+        else:
+            for c in cases:
+                with st.expander(f"📌 {c['title']} (ID: {c['case_id']}) - {c['evaluation_type']}"):
+                    evals = case_repo.get_case_evaluations(c['case_id'])
+                    st.write(f"**Fecha de Creación:** {c['created_at'][:19]}")
+                    st.write(f"**Evaluaciones Recibidas:** {len(evals)}")
+                    st.code(f"?case={c['case_id']}", language="text")
+                    
+                    if evals:
+                        st.markdown("##### Jueces que han respondido:")
+                        j_df = pd.DataFrame([{
+                            "Juez": e["judge_name"],
+                            "Fecha de Envío": e["submitted_at"][:19]
+                        } for e in evals])
+                        st.dataframe(j_df, use_container_width=True)
+
+def render_evaluator_portal(case_id):
+    case = case_repo.get_case(case_id)
+    if not case:
+        st.error(f"❌ El caso con código `{case_id}` no existe o ha expirado.")
+        st.stop()
+        
+    config = case["config"]
+    criteria = config.get("criteria_names", [])
+    alternatives = config.get("alternatives", [])
+    
+    st.title(f"📋 {case['title']}")
+    if case.get("description"):
+        st.markdown(f"*{case['description']}*")
+    st.markdown("---")
+    
+    st.subheader("1. Identificación del Evaluador")
+    judge_name = st.text_input("Ingresa tu Nombre o Identificador de Evaluador *", placeholder="Ej: Dra. María Gómez / Juez 1")
+    
+    eval_type = case["evaluation_type"]
+    
+    if "AHP" in eval_type:
+        st.subheader("2. Comparación Pareada de Criterios (AHP)")
+        st.info("Compara qué criterio consideras más importante y con qué intensidad (Escala 1 al 9).")
+        
+        n = len(criteria)
+        ahp_pairwise = {}
+        
+        scale = {
+            "Equal (1)": 1.0,
+            "Moderate (3)": 3.0,
+            "Strong (5)": 5.0,
+            "Very Strong (7)": 7.0,
+            "Extreme (9)": 9.0,
+            "Intermediate (2)": 2.0,
+            "Intermediate (4)": 4.0,
+            "Intermediate (6)": 6.0,
+            "Intermediate (8)": 8.0,
+        }
+        
+        for i in range(n):
+            for j in range(i + 1, n):
+                c1 = criteria[i]
+                c2 = criteria[j]
+                
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    winner = st.radio(
+                        f"¿Cuál es más importante entre {c1} y {c2}?",
+                        [c1, c2],
+                        key=f"eval_winner_{i}_{j}"
+                    )
+                with col2:
+                    intensity_label = st.selectbox(
+                        "Grado de Importancia",
+                        list(scale.keys()),
+                        index=0,
+                        key=f"eval_scale_{i}_{j}"
+                    )
+                
+                ahp_pairwise[f"{i}_{j}"] = {
+                    "winner": winner,
+                    "intensity": scale[intensity_label]
+                }
+                st.markdown("---")
+                
+        if st.button("✅ Enviar mi Evaluación", type="primary"):
+            if not judge_name.strip():
+                st.error("Por favor ingresa tu nombre antes de enviar.")
+            else:
+                submission_data = {
+                    "scenario_name": judge_name.strip(),
+                    "criteria_names": criteria,
+                    "num_criteria": len(criteria),
+                    "ahp_pairwise": ahp_pairwise
+                }
+                case_repo.submit_evaluation(case_id, judge_name.strip(), submission_data)
+                st.success(f"🎉 ¡Muchas gracias, {judge_name}! Tu evaluación ha sido registrada correctamente.")
+                st.balloons()
+                
+    elif "Matriz" in eval_type:
+        st.subheader("2. Calificación de Alternativas por Criterio")
+        st.info("Ingresa el puntaje o valor de cada alternativa para los criterios definidos.")
+        
+        decision_matrix = {}
+        for r_idx, alt in enumerate(alternatives):
+            st.markdown(f"**Alternativa: {alt}**")
+            cols = st.columns(len(criteria))
+            for c_idx, crit in enumerate(criteria):
+                with cols[c_idx]:
+                    val = st.number_input(f"{crit}", value=1.0, key=f"eval_dm_{r_idx}_{c_idx}")
+                    decision_matrix[f"{r_idx}_{c_idx}"] = float(val)
+                    
+        if st.button("✅ Enviar mi Evaluación", type="primary"):
+            if not judge_name.strip():
+                st.error("Por favor ingresa tu nombre antes de enviar.")
+            else:
+                submission_data = {
+                    "scenario_name": judge_name.strip(),
+                    "criteria_names": criteria,
+                    "alternative_names": alternatives,
+                    "num_criteria": len(criteria),
+                    "num_alternatives": len(alternatives),
+                    "decision_matrix": decision_matrix
+                }
+                case_repo.submit_evaluation(case_id, judge_name.strip(), submission_data)
+                st.success(f"🎉 ¡Muchas gracias, {judge_name}! Tu matriz de evaluación ha sido registrada.")
+                st.balloons()
+
 def render_group_ahp():
     st.header("Group Decision Aggregator")
-    st.info("Upload multiple JSON scenario files to aggregate judgments (AHP/Fuzzy) and/or decision matrices (TOPSIS/PROMETHEE).")
+    st.info("Agrega juicios de múltiples evaluadores cargando archivos JSON o seleccionando un caso compartido en línea.")
     
-    uploaded_files = st.file_uploader("Upload Judge Files (JSON)", type="json", accept_multiple_files=True)
+    source_choice = st.radio("Fuente de Evaluaciones", ["🌐 Cargar desde Caso en la Nube / Base de Datos", "📁 Subir Archivos JSON Manualmente"], horizontal=True)
     
-    if uploaded_files:
+    uploaded_files_data = []
+    
+    if source_choice == "🌐 Cargar desde Caso en la Nube / Base de Datos":
+        cases = case_repo.list_cases()
+        if not cases:
+            st.warning("No hay casos compartidos creados aún. Puedes crear uno en el modo '🔗 Compartir Caso (Multi-Juez)'.")
+            return
+        
+        case_options = {f"{c['title']} (ID: {c['case_id']})": c['case_id'] for c in cases}
+        selected_case_label = st.selectbox("Selecciona el Caso para Consolidar", list(case_options.keys()))
+        selected_case_id = case_options[selected_case_label]
+        
+        evaluations = case_repo.get_case_evaluations(selected_case_id)
+        st.write(f"**Total de evaluaciones recibidas para este caso:** `{len(evaluations)}`")
+        
+        if len(evaluations) < 2:
+            st.warning("Se necesitan al menos 2 evaluaciones para realizar la agregación de grupo.")
+            return
+            
+        uploaded_files_data = [e["evaluation"] for e in evaluations]
+    else:
+        uploaded_files = st.file_uploader("Upload Judge Files (JSON)", type="json", accept_multiple_files=True)
+        if not uploaded_files:
+            return
         if len(uploaded_files) < 2:
             st.warning("Please upload at least 2 files to perform aggregation.")
             return
+        for file in uploaded_files:
+            uploaded_files_data.append(json.load(file))
             
+    if uploaded_files_data:
         pairwise_matrices = []
         decision_matrices = []
         judge_names = []
@@ -1205,9 +1418,8 @@ def render_group_ahp():
         alternatives = None
         
         try:
-            for file in uploaded_files:
-                data = json.load(file)
-                judge_names.append(data.get("scenario_name", file.name))
+            for data in uploaded_files_data:
+                judge_names.append(data.get("scenario_name", "Anónimo"))
                 
                 # Check Metadata
                 c_names = data.get("criteria_names", [])
@@ -1371,3 +1583,5 @@ elif mode == "Group Decision Aggregator":
     render_group_ahp()
 elif mode == "ANP (Network)":
     render_anp()
+elif mode == "🔗 Compartir Caso (Multi-Juez)":
+    render_share_case()
