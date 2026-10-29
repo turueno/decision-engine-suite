@@ -170,13 +170,6 @@ def update_model(key, index=None, index2=None):
     elif key.startswith("dm_"):
         st.session_state.model["decision_matrix"][(index, index2)] = val
 
-# Check Query Parameters for Direct Evaluator Link
-query_params = st.query_params
-if "case" in query_params:
-    case_id_param = query_params["case"]
-    render_evaluator_portal(case_id_param)
-    st.stop()
-
 # Sidebar for navigation
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width='stretch')
@@ -1640,3 +1633,7 @@ elif mode == "ANP (Network)":
     render_anp()
 elif mode == "🔗 Compartir Caso (Multi-Juez)":
     render_share_case()
+
+# Route directly to Evaluator Portal if query param exists
+if "case" in st.query_params:
+    render_evaluator_portal(st.query_params["case"])
