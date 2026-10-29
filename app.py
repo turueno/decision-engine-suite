@@ -1276,64 +1276,96 @@ def render_evaluator_portal(case_id):
     criteria = config.get("criteria_names", [])
     alternatives = config.get("alternatives", [])
     
-    st.title(f"📋 {case['title']}")
-    if case.get("description"):
-        st.markdown(f"*{case['description']}*")
-    st.markdown("---")
+    # Custom Modern Form Styling
+    st.markdown("""
+    <style>
+        [data-testid="stSidebar"] { display: none; }
+        header { visibility: hidden; }
+        .main .block-container {
+            max-width: 800px;
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+        }
+        .form-card {
+            background-color: #FFFFFF;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid #E0E0E0;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        }
+    </style>
+    """, unsafe_allow_html=True)
     
-    st.subheader("1. Identificación del Evaluador")
-    judge_name = st.text_input("Ingresa tu Nombre o Identificador de Evaluador *", placeholder="Ej: Dra. María Gómez / Juez 1")
+    st.markdown(f"# 📋 {case['title']}")
+    if case.get("description"):
+        st.info(f"💡 **Instrucciones:** {case['description']}")
+    
+    st.markdown("### 👤 Datos del Evaluador")
+    judge_name = st.text_input("Tu Nombre Completo / Rol de Experto *", placeholder="Ej: Dr. Alejandro Silva / Director de Operaciones")
     
     eval_type = case["evaluation_type"]
     
     if "AHP" in eval_type:
-        st.subheader("2. Comparación Pareada de Criterios (AHP)")
-        st.info("Compara qué criterio consideras más importante y con qué intensidad (Escala 1 al 9).")
+        st.markdown("### ⚖️ Comparación Pareada de Criterios")
+        st.write("Selecciona cuál de los dos criterios consideras más importante y desliza la intensidad de tu preferencia:")
         
         n = len(criteria)
         ahp_pairwise = {}
         
-        scale = {
-            "Equal (1)": 1.0,
-            "Moderate (3)": 3.0,
-            "Strong (5)": 5.0,
-            "Very Strong (7)": 7.0,
-            "Extreme (9)": 9.0,
-            "Intermediate (2)": 2.0,
-            "Intermediate (4)": 4.0,
-            "Intermediate (6)": 6.0,
-            "Intermediate (8)": 8.0,
+        scale_map = {
+            1: "1 - Igual de importantes",
+            2: "2 - Ligeramente más importante",
+            3: "3 - Moderadamente más importante",
+            4: "4 - Moderada a fuertemente",
+            5: "5 - Fuertemente más importante",
+            6: "6 - Fuerte a muy fuertemente",
+            7: "7 - Muy fuertemente más importante",
+            8: "8 - Muy fuerte a extremadamente",
+            9: "9 - Extremadamente más importante"
         }
+        
+        comparison_idx = 1
+        total_comparisons = (n * (n - 1)) // 2
         
         for i in range(n):
             for j in range(i + 1, n):
                 c1 = criteria[i]
                 c2 = criteria[j]
                 
-                col1, col2 = st.columns([1, 1])
+                st.markdown(f"#### Comparación {comparison_idx} de {total_comparisons}")
+                comparison_idx += 1
+                
+                col1, col2 = st.columns([1, 1.2])
                 with col1:
                     winner = st.radio(
-                        f"¿Cuál es más importante entre {c1} y {c2}?",
+                        f"¿Qué criterio tiene mayor prioridad?",
                         [c1, c2],
-                        key=f"eval_winner_{i}_{j}"
+                        key=f"eval_winner_{i}_{j}",
+                        horizontal=True
                     )
                 with col2:
-                    intensity_label = st.selectbox(
-                        "Grado de Importancia",
-                        list(scale.keys()),
-                        index=0,
+                    intensity_num = st.slider(
+                        "Grado de Intensidad (Escala Saaty 1 a 9)",
+                        min_value=1,
+                        max_value=9,
+                        value=1,
+                        step=1,
+                        format="%d",
+                        help=scale_map[1],
                         key=f"eval_scale_{i}_{j}"
                     )
+                    st.caption(f"📌 *{scale_map[intensity_num]}*")
                 
                 ahp_pairwise[f"{i}_{j}"] = {
                     "winner": winner,
-                    "intensity": scale[intensity_label]
+                    "intensity": float(intensity_num)
                 }
                 st.markdown("---")
                 
-        if st.button("✅ Enviar mi Evaluación", type="primary"):
+        if st.button("🚀 Enviar mi Evaluación Definitiva", type="primary", use_container_width=True):
             if not judge_name.strip():
-                st.error("Por favor ingresa tu nombre antes de enviar.")
+                st.error("⚠️ Por favor ingresa tu nombre o rol antes de enviar.")
             else:
                 submission_data = {
                     "scenario_name": judge_name.strip(),
@@ -1342,25 +1374,33 @@ def render_evaluator_portal(case_id):
                     "ahp_pairwise": ahp_pairwise
                 }
                 case_repo.submit_evaluation(case_id, judge_name.strip(), submission_data)
-                st.success(f"🎉 ¡Muchas gracias, {judge_name}! Tu evaluación ha sido registrada correctamente.")
+                st.success(f"🎉 ¡Muchas gracias, {judge_name}! Tu evaluación ha sido registrada con éxito.")
                 st.balloons()
                 
     elif "Matriz" in eval_type:
-        st.subheader("2. Calificación de Alternativas por Criterio")
-        st.info("Ingresa el puntaje o valor de cada alternativa para los criterios definidos.")
+        st.markdown("### 📊 Calificación de Alternativas por Criterio")
+        st.write("Evalúa el desempeño de cada alternativa en una escala del 1 (Pésimo/Bajo) al 10 (Excelente/Óptimo):")
         
         decision_matrix = {}
         for r_idx, alt in enumerate(alternatives):
-            st.markdown(f"**Alternativa: {alt}**")
+            st.markdown(f"### 🏷️ Alternativa: **{alt}**")
             cols = st.columns(len(criteria))
             for c_idx, crit in enumerate(criteria):
                 with cols[c_idx]:
-                    val = st.number_input(f"{crit}", value=1.0, key=f"eval_dm_{r_idx}_{c_idx}")
+                    val = st.slider(
+                        f"{crit}",
+                        min_value=1.0,
+                        max_value=10.0,
+                        value=5.0,
+                        step=0.5,
+                        key=f"eval_dm_{r_idx}_{c_idx}"
+                    )
                     decision_matrix[f"{r_idx}_{c_idx}"] = float(val)
+            st.markdown("---")
                     
-        if st.button("✅ Enviar mi Evaluación", type="primary"):
+        if st.button("🚀 Enviar mi Evaluación Definitiva", type="primary", use_container_width=True):
             if not judge_name.strip():
-                st.error("Por favor ingresa tu nombre antes de enviar.")
+                st.error("⚠️ Por favor ingresa tu nombre o rol antes de enviar.")
             else:
                 submission_data = {
                     "scenario_name": judge_name.strip(),
@@ -1368,6 +1408,11 @@ def render_evaluator_portal(case_id):
                     "alternative_names": alternatives,
                     "num_criteria": len(criteria),
                     "num_alternatives": len(alternatives),
+                    "decision_matrix": decision_matrix
+                }
+                case_repo.submit_evaluation(case_id, judge_name.strip(), submission_data)
+                st.success(f"🎉 ¡Muchas gracias, {judge_name}! Tu evaluación ha sido registrada con éxito.")
+                st.balloons()
                     "decision_matrix": decision_matrix
                 }
                 case_repo.submit_evaluation(case_id, judge_name.strip(), submission_data)
@@ -1496,14 +1541,29 @@ def render_group_ahp():
                     
                     decision_matrices.append(d_mat)
             
-            st.success(f"Loaded files from: {', '.join(judge_names)}")
-            st.info(f"Found {len(pairwise_matrices)} Pairwise Matrices and {len(decision_matrices)} Decision Matrices.")
+            st.success(f"Evaluadores identificados ({len(judge_names)}): {', '.join(judge_names)}")
+            
+            # Judge Weights Configuration (Sliders)
+            st.markdown("### ⚖️ Ponderación de Evaluadores")
+            st.caption("Ajusta la importancia relativa de cada juez (por defecto todos tienen el mismo peso):")
+            
+            num_j = len(judge_names)
+            judge_weights_input = []
+            cols_w = st.columns(min(num_j, 4))
+            for idx, j_name in enumerate(judge_names):
+                col_target = cols_w[idx % min(num_j, 4)]
+                with col_target:
+                    w_val = st.slider(f"{j_name}", min_value=0.1, max_value=2.0, value=1.0, step=0.1, key=f"jw_{idx}")
+                    judge_weights_input.append(w_val)
+                    
+            st.markdown("---")
             
             if st.button("Aggregate & Calculate"):
                 group_engine = GroupDecisionEngine(
                     matrices=pairwise_matrices if pairwise_matrices else None,
                     decision_matrices=decision_matrices if decision_matrices else None,
-                    criteria_names=criteria_names
+                    criteria_names=criteria_names,
+                    judge_weights=judge_weights_input
                 )
                 results = group_engine.get_results()
                 
