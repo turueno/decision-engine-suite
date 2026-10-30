@@ -1,0 +1,36 @@
+{
+  "scenario_name": "Jesus Cabrera / Director General",
+  "criteria_names": [
+    "Homologación de conocimiento (ej. NSE) e identificación de criterios subjetivos",
+    "Cómo integrarnos y aprovechar lo más posible la red Provokers",
+    "Concentrarnos en la oferta y proceso proyectos cuantitativos",
+    "Desarrollo de modelo de servicio y mayor contacto con nuevas generaciones de clientes"
+  ],
+  "num_criteria": 4,
+  "ahp_pairwise": {
+    "0_1": {
+      "winner": "Cómo integrarnos y aprovechar lo más posible la red Provokers",
+      "intensity": 5.0
+    },
+    "0_2": {
+      "winner": "Homologación de conocimiento (ej. NSE) e identificación de criterios subjetivos",
+      "intensity": 5.0
+    },
+    "0_3": {
+      "winner": "Homologación de conocimiento (ej. NSE) e identificación de criterios subjetivos",
+      "intensity": 6.0
+    },
+    "1_2": {
+      "winner": "Cómo integrarnos y aprovechar lo más posible la red Provokers",
+      "intensity": 5.0
+    },
+    "1_3": {
+      "winner": "Cómo integrarnos y aprovechar lo más posible la red Provokers",
+      "intensity": 3.0
+    },
+    "2_3": {
+      "winner": "Concentrarnos en la oferta y proceso proyectos cuantitativos",
+      "intensity": 6.0
+    }
+  }
+}

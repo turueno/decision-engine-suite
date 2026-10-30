@@ -7,7 +7,13 @@ import os
 class CaseRepository:
     """Manages multi-user cases and judge evaluations using SQLite."""
     
-    def __init__(self, db_path="decision_cases.db"):
+    def __init__(self, db_path=None):
+        if db_path is None:
+            # Check for Railway persistent volume at /data
+            if os.path.exists("/data") and os.path.isdir("/data"):
+                db_path = "/data/decision_cases.db"
+            else:
+                db_path = os.getenv("DB_PATH", "decision_cases.db")
         self.db_path = db_path
         self._init_db()
 

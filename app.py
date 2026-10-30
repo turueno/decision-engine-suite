@@ -11,6 +11,7 @@ from decision_engine.group_ahp import GroupDecisionEngine
 from decision_engine.anp import ANPEngine
 from decision_engine.case_repository import CaseRepository
 import json
+from datetime import datetime
 
 case_repo = CaseRepository()
 
@@ -1258,6 +1259,24 @@ def render_share_case():
                             "Fecha de Envío": e["submitted_at"][:19]
                         } for e in evals])
                         st.dataframe(j_df, use_container_width=True)
+                        
+                        # Respaldo de Evaluaciones en 1 Clic
+                        backup_payload = {
+                            "case_id": c["case_id"],
+                            "title": c["title"],
+                            "evaluation_type": c["evaluation_type"],
+                            "backup_timestamp": datetime.now().isoformat(),
+                            "total_evaluations": len(evals),
+                            "evaluations": evals
+                        }
+                        backup_json = json.dumps(backup_payload, indent=2, ensure_ascii=False)
+                        st.download_button(
+                            label=f"💾 Descargar Respaldo JSON de '{c['title']}'",
+                            data=backup_json,
+                            file_name=f"respaldo_{c['case_id']}_{c['title'].replace(' ', '_')}.json",
+                            mime="application/json",
+                            key=f"dl_backup_{c['case_id']}"
+                        )
 
 def render_evaluator_portal(case_id):
     case = case_repo.get_case(case_id)
