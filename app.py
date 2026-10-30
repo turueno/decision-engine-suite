@@ -1428,50 +1428,78 @@ def render_evaluator_portal(case_id):
 
 def render_group_ahp():
     st.header("Group Decision Aggregator")
-    st.info("Agrega juicios de múltiples evaluadores cargando archivos JSON o seleccionando un caso compartido en línea.")
-    
-    source_choice = st.radio("Fuente de Evaluaciones", ["🌐 Cargar desde Caso en la Nube / Base de Datos", "📁 Subir Archivos JSON Manualmente"], horizontal=True)
+    st.info("Agrega juicios de múltiples evaluadores combinando casos de la nube y/o archivos JSON locales de forma híbrida.")
     
     uploaded_files_data = []
     
-    if source_choice == "🌐 Cargar desde Caso en la Nube / Base de Datos":
+    col_cloud, col_local = st.columns([1, 1])
+    
+    with col_cloud:
+        st.markdown("#### 🌐 1. Evaluaciones desde la Nube")
         cases = case_repo.list_cases()
         if not cases:
-            st.warning("No hay casos compartidos creados aún. Puedes crear uno en el modo '🔗 Compartir Caso (Multi-Juez)'.")
-            return
-        
-        case_options = {f"{c['title']} (ID: {c['case_id']})": c['case_id'] for c in cases}
-        selected_case_label = st.selectbox("Selecciona el Caso para Consolidar", list(case_options.keys()))
-        selected_case_id = case_options[selected_case_label]
-        
-        evaluations = case_repo.get_case_evaluations(selected_case_id)
-        st.write(f"**Total de evaluaciones recibidas para este caso:** `{len(evaluations)}`")
-        
-        if len(evaluations) < 2:
-            st.warning("Se necesitan al menos 2 evaluaciones para realizar la agregación de grupo.")
-            return
+            st.caption("No hay casos en la nube registrados aún.")
+        else:
+            case_options = {"(Ninguno seleccionado)": None}
+            for c in cases:
+                case_options[f"{c['title']} (ID: {c['case_id']})"] = c['case_id']
+                
+            selected_case_label = st.selectbox("Seleccionar Caso de la Nube", list(case_options.keys()))
+            selected_case_id = case_options[selected_case_label]
             
-        uploaded_files_data = [e["evaluation"] for e in evaluations]
-    else:
-        uploaded_files = st.file_uploader("Upload Judge Files (JSON)", type="json", accept_multiple_files=True)
-        if not uploaded_files:
-            return
-        if len(uploaded_files) < 2:
-            st.warning("Please upload at least 2 files to perform aggregation.")
-            return
-        for file in uploaded_files:
-            uploaded_files_data.append(json.load(file))
-            
+            if selected_case_id:
+                cloud_evals = case_repo.get_case_evaluations(selected_case_id)
+                st.success(f"Cargadas **{len(cloud_evals)}** evaluaciones desde la nube.")
+                for e in cloud_evals:
+                    eval_copy = dict(e["evaluation"])
+                    # Mark origin for visual clarity
+                    eval_copy["_source"] = "🌐 Nube"
+                    uploaded_files_data.append(eval_copy)
+
+    with col_local:
+        st.markdown("#### 📁 2. Evaluaciones desde Archivos JSON")
+        uploaded_files = st.file_uploader(
+            "Cargar archivos JSON adicionales o de respaldo", 
+            type="json", 
+            accept_multiple_files=True,
+            key="group_hybrid_uploader"
+        )
+        if uploaded_files:
+            st.success(f"Cargados **{len(uploaded_files)}** archivos locales.")
+            for file in uploaded_files:
+                try:
+                    f_data = json.load(file)
+                    # Support both single judge evaluation or combined backup JSON
+                    if "judges" in f_data and isinstance(f_data["judges"], list):
+                        for j_item in f_data["judges"]:
+                            j_copy = dict(j_item)
+                            j_copy["_source"] = f"📁 Backup ({file.name})"
+                            uploaded_files_data.append(j_copy)
+                    else:
+                        f_copy = dict(f_data)
+                        f_copy["_source"] = f"📁 Archivo ({file.name})"
+                        uploaded_files_data.append(f_copy)
+                except Exception as ex:
+                    st.error(f"Error en archivo {file.name}: {ex}")
+
+    if not uploaded_files_data:
+        st.info("💡 Puedes seleccionar un caso de la nube, subir archivos JSON locales, o **ambos a la vez** para combinar las evaluaciones.")
+        return
+
+    st.markdown("---")
+    st.write(f"📊 **Total de Evaluadores Consolidados (Híbrido):** `{len(uploaded_files_data)}`")
+
     if uploaded_files_data:
         # Pre-filtration: Review judge inputs and select who to include
         st.markdown("### 👥 Revisión y Selección de Evaluadores")
-        st.caption("Inspecciona los juicios individuales de cada evaluador y activa/desactiva su inclusión en el cálculo:")
+        st.caption("Inspecciona los juicios individuales de cada evaluador (indicando su origen) y activa/desactiva su inclusión:")
         
         filtered_files_data = []
         for idx, data in enumerate(uploaded_files_data):
             j_name = data.get("scenario_name", f"Evaluador {idx+1}")
+            origin = data.get("_source", "")
             
-            with st.expander(f"👤 {j_name} (Inspeccionar juicios)", expanded=False):
+            with st.expander(f"👤 {j_name}  {origin} (Inspeccionar juicios)", expanded=False):
                 # Show individual AHP judgments if present
                 if "ahp_pairwise" in data:
                     st.markdown("**Comparaciones Pareadas (AHP):**")
@@ -1491,7 +1519,7 @@ def render_group_ahp():
                     st.write(dm_dict)
             
             # Checkbox to include/exclude this judge
-            include_judge = st.checkbox(f"✅ Incluir a **{j_name}** en la agregación final", value=True, key=f"include_j_{idx}")
+            include_judge = st.checkbox(f"✅ Incluir a **{j_name}** ({origin}) en la agregación final", value=True, key=f"include_j_{idx}")
             if include_judge:
                 filtered_files_data.append(data)
                 
