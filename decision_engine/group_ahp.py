@@ -129,7 +129,79 @@ class GroupDecisionEngine:
         
         return self.weights
 
-    def get_results(self):
+    def calculate_individual_diagnostics(self, judge_names=None):
+        """
+        Calculates individual AHP priorities, consistency ratio (CR), and consensus alignment for each judge.
+        """
+        if not self.matrices:
+            return []
+            
+        num_judges = len(self.matrices)
+        if judge_names is None or len(judge_names) != num_judges:
+            names = [f"Juez {i+1}" for i in range(num_judges)]
+        else:
+            names = judge_names
+            
+        if self.weights is None:
+            self.calculate_weights()
+            
+        group_weights_vec = np.array([self.weights[c] for c in self.criteria_names])
+        diagnostics = []
+        
+        for k in range(num_judges):
+            mat_k = self.matrices[k]
+            # If fuzzy, defuzzify or compute crisp approx for individual diagnostic
+            if self.is_fuzzy:
+                crisp_mat = np.ones((len(mat_k), len(mat_k)))
+                for r in range(len(mat_k)):
+                    for c in range(len(mat_k)):
+                        val = mat_k[r][c]
+                        if isinstance(val, (list, tuple, np.ndarray)):
+                            crisp_mat[r, c] = (val[0] + 4 * val[1] + val[2]) / 6.0
+                        else:
+                            crisp_mat[r, c] = float(val)
+                ahp_k = AHPEngine(crisp_mat, self.criteria_names)
+            else:
+                ahp_k = AHPEngine(mat_k, self.criteria_names)
+                
+            res_k = ahp_k.get_results()
+            w_k_vec = np.array([res_k["weights"][c] for c in self.criteria_names])
+            cr_k = float(res_k["consistency_ratio"])
+            
+            # Status based on Saaty standards
+            if cr_k <= 0.10:
+                status = "Excelente (<= 0.10)"
+                badge = "🟢 Consistente"
+            elif cr_k <= 0.20:
+                status = "Aceptable / Tolerable (0.10 - 0.20)"
+                badge = "🟡 Tolerable"
+            else:
+                status = "Inconsistente (> 0.20)"
+                badge = "🔴 Inconsistente"
+                
+            # Alignment with group: Euclidean distance and Pearson correlation
+            dist = float(np.linalg.norm(w_k_vec - group_weights_vec))
+            # Alignment index (1 - normalized distance)
+            alignment_pct = max(0.0, float((1.0 - (dist / np.sqrt(2))) * 100))
+            
+            # Top preferred criterion for this judge
+            top_crit = max(res_k["weights"].items(), key=lambda x: x[1])[0]
+            
+            diagnostics.append({
+                "judge_name": names[k],
+                "weights": res_k["weights"],
+                "weights_vector": w_k_vec,
+                "consistency_ratio": cr_k,
+                "status": status,
+                "badge": badge,
+                "distance_to_group": dist,
+                "alignment_pct": alignment_pct,
+                "top_criterion": top_crit
+            })
+            
+        return diagnostics
+
+    def get_results(self, judge_names=None):
         results = {
             "method": "Group Decision Aggregator",
             "num_judges_pairwise": len(self.matrices) if self.matrices else 0,
@@ -144,6 +216,22 @@ class GroupDecisionEngine:
             results["consistency_ratio"] = self.consistency_ratio
             results["is_consistent"] = self.is_consistent
             results["is_fuzzy"] = self.is_fuzzy
+            results["individual_diagnostics"] = self.calculate_individual_diagnostics(judge_names)
+            
+            # Criteria agreement & dispersion
+            if results["individual_diagnostics"]:
+                all_w = np.array([d["weights_vector"] for d in results["individual_diagnostics"]])
+                std_per_crit = np.std(all_w, axis=0)
+                mean_per_crit = np.mean(all_w, axis=0)
+                # Coefficient of variation (CV = std / mean)
+                cv_per_crit = np.where(mean_per_crit > 0, (std_per_crit / mean_per_crit) * 100, 0.0)
+                results["criteria_dispersion"] = {
+                    c: {
+                        "std": float(std_per_crit[i]),
+                        "cv_pct": float(cv_per_crit[i]),
+                        "agreement_level": "Alto" if cv_per_crit[i] < 25 else ("Moderado" if cv_per_crit[i] < 50 else "Discrepante")
+                    } for i, c in enumerate(self.criteria_names)
+                }
             
         if self.decision_matrices:
             if self.aggregated_decision_matrix is None:

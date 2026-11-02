@@ -186,3 +186,71 @@ class ScenarioManager:
         
         output.seek(0)
         return output.getvalue()
+
+    @staticmethod
+    def export_group_analysis_excel(results, criteria_names, judge_names=None):
+        """
+        Exports full multi-judge AHP analysis into a structured multi-tab Excel workbook.
+        Tabs:
+          1. Consenso Grupal (Group Weights, Consistency Ratio, Dispersion)
+          2. Diagnóstico Jueces (Individual CR, Status, Alignment)
+          3. Comparativa Criterios (Table of weights per judge vs Group)
+        """
+        output = BytesIO()
+        
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Tab 1: Consenso Grupal
+            group_summary = []
+            group_weights = results.get("weights", {})
+            cr_group = results.get("consistency_ratio", 0.0)
+            is_cons = results.get("is_consistent", True)
+            
+            summary_info = [
+                {"Métrica": "Número de Evaluadores Incluidos", "Valor": results.get("num_judges_pairwise", 0)},
+                {"Métrica": "Ratio de Consistencia Grupal (CR)", "Valor": f"{cr_group:.4f}"},
+                {"Métrica": "Estado de Consistencia Grupal", "Valor": "Consistente (CR < 0.10)" if is_cons else "Inconsistente (CR >= 0.10)"},
+                {"Métrica": "Método de Agregación", "Valor": "Media Geométrica Ponderada (Weighted AIJ)"}
+            ]
+            pd.DataFrame(summary_info).to_excel(writer, sheet_name="Consenso Grupal", index=False, startrow=0)
+            
+            # Group Weights Table
+            disp = results.get("criteria_dispersion", {})
+            rows_w = []
+            for c in criteria_names:
+                w_val = group_weights.get(c, 0.0)
+                disp_info = disp.get(c, {})
+                rows_w.append({
+                    "Criterio": c,
+                    "Peso Grupal": w_val,
+                    "Peso Grupal (%)": f"{w_val * 100:.2f}%",
+                    "Desviación Estándar": round(disp_info.get("std", 0.0), 4),
+                    "Nivel de Acuerdo": disp_info.get("agreement_level", "N/A")
+                })
+            df_group_w = pd.DataFrame(rows_w)
+            df_group_w.to_excel(writer, sheet_name="Consenso Grupal", index=False, startrow=len(summary_info) + 2)
+            
+            # Tab 2: Diagnóstico de Jueces
+            diag = results.get("individual_diagnostics", [])
+            if diag:
+                diag_rows = []
+                for d in diag:
+                    diag_rows.append({
+                        "Evaluador": d["judge_name"],
+                        "Ratio de Consistencia (CR)": round(d["consistency_ratio"], 4),
+                        "Diagnóstico de Consistencia": d["badge"],
+                        "Nivel de Alineación con el Consenso": f"{d['alignment_pct']:.1f}%",
+                        "Distancia al Grupo": round(d["distance_to_group"], 4),
+                        "Criterio Más Valorado": d["top_criterion"]
+                    })
+                pd.DataFrame(diag_rows).to_excel(writer, sheet_name="Diagnóstico Evaluadores", index=False)
+                
+            # Tab 3: Comparativa Criterios
+            if diag:
+                comp_dict = {"Criterio": criteria_names}
+                for d in diag:
+                    comp_dict[d["judge_name"]] = [f"{d['weights'].get(c, 0.0)*100:.2f}%" for c in criteria_names]
+                comp_dict["CONSENSO GRUPAL"] = [f"{group_weights.get(c, 0.0)*100:.2f}%" for c in criteria_names]
+                pd.DataFrame(comp_dict).to_excel(writer, sheet_name="Comparativa Criterios", index=False)
+                
+        output.seek(0)
+        return output.getvalue()

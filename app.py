@@ -1638,7 +1638,7 @@ def render_group_ahp():
                     criteria_names=criteria_names,
                     judge_weights=judge_weights_input
                 )
-                results = group_engine.get_results()
+                results = group_engine.get_results(judge_names=judge_names)
                 
                 st.subheader("Group Results")
                 
@@ -1652,10 +1652,65 @@ def render_group_ahp():
                     with col1:
                         weights_df = pd.DataFrame(list(results['weights'].items()), columns=['Criterion', 'Weight'])
                         st.dataframe(weights_df)
-                        csv_data = ScenarioManager.export_results_csv(results['weights'], "weights")
-                        st.download_button("Download Group Weights (CSV)", csv_data, "group_weights.csv", "text/csv")
                     with col2:
-                        st.metric("Group Consistency Ratio", f"{results['consistency_ratio']:.4f}")
+                        cr_val = results['consistency_ratio']
+                        st.metric("Group Consistency Ratio", f"{cr_val:.4f}")
+                        if cr_val <= 0.10:
+                            st.success("🟢 Consistencia Grupal Excelente (CR <= 0.10)")
+                        elif cr_val <= 0.20:
+                            st.warning("🟡 Consistencia Grupal Aceptable / Tolerable (0.10 < CR <= 0.20)")
+                        else:
+                            st.error("🔴 Inconsistencia Grupal Elevada (CR > 0.20). Se recomienda revisar jueces disidentes.")
+
+                    # Individual Judges Diagnostic Section
+                    diag = results.get("individual_diagnostics", [])
+                    if diag:
+                        st.markdown("---")
+                        st.markdown("### 📊 Diagnóstico y Consistencia Individual por Evaluador")
+                        st.caption("Semáforo de consistencia individual (Saaty) y nivel de alineación de cada juez con el consenso:")
+                        
+                        diag_display = []
+                        for d in diag:
+                            diag_display.append({
+                                "Evaluador": d["judge_name"],
+                                "CR Individual": f"{d['consistency_ratio']:.4f}",
+                                "Estado": d["badge"],
+                                "Alineación con Grupo": f"{d['alignment_pct']:.1f}%",
+                                "Criterio Prioritario": d["top_criterion"]
+                            })
+                        st.dataframe(pd.DataFrame(diag_display), use_container_width=True)
+                        
+                        # Comparison Table per Criterion
+                        st.markdown("#### 🔍 Comparativa Criterio por Criterio")
+                        comp_dict = {"Criterio": criteria_names}
+                        for d in diag:
+                            comp_dict[d["judge_name"]] = [f"{d['weights'].get(c, 0.0)*100:.2f}%" for c in criteria_names]
+                        comp_dict["🏆 CONSENSO"] = [f"{results['weights'].get(c, 0.0)*100:.2f}%" for c in criteria_names]
+                        st.dataframe(pd.DataFrame(comp_dict), use_container_width=True)
+
+                    # Export Section (Excel and CSV)
+                    st.markdown("---")
+                    st.markdown("### 📥 Descarga de Reportes y Datos")
+                    col_dl1, col_dl2 = st.columns(2)
+                    with col_dl1:
+                        excel_data = ScenarioManager.export_group_analysis_excel(results, criteria_names, judge_names)
+                        st.download_button(
+                            label="📊 Descargar Reporte Completo en Excel (.xlsx)",
+                            data=excel_data,
+                            file_name=f"analisis_multijuez_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            type="primary",
+                            use_container_width=True
+                        )
+                    with col_dl2:
+                        csv_data = ScenarioManager.export_results_csv(results['weights'], "weights")
+                        st.download_button(
+                            label="📄 Descargar Pesos en CSV",
+                            data=csv_data,
+                            file_name="group_weights.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
 
                 # Display Decision Matrix
                 if "aggregated_decision_matrix" in results:
