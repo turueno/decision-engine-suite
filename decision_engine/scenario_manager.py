@@ -188,11 +188,11 @@ class ScenarioManager:
         return output.getvalue()
 
     @staticmethod
-    def export_group_analysis_excel(results, criteria_names, judge_names=None):
+    def export_group_analysis_excel(results, criteria_names, judge_names=None, ai_insight=None):
         """
         Exports full multi-judge AHP analysis into a structured multi-tab Excel workbook.
         Tabs:
-          1. Consenso Grupal (Group Weights, Consistency Ratio, Dispersion)
+          1. Consenso Grupal (Group Weights, Consistency Ratio, Dispersion, AI Executive Narrative)
           2. Diagnóstico Jueces (Individual CR, Status, Alignment)
           3. Comparativa Criterios (Table of weights per judge vs Group)
         """
@@ -200,7 +200,6 @@ class ScenarioManager:
         
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             # Tab 1: Consenso Grupal
-            group_summary = []
             group_weights = results.get("weights", {})
             cr_group = results.get("consistency_ratio", 0.0)
             is_cons = results.get("is_consistent", True)
@@ -211,6 +210,9 @@ class ScenarioManager:
                 {"Métrica": "Estado de Consistencia Grupal", "Valor": "Consistente (CR < 0.10)" if is_cons else "Inconsistente (CR >= 0.10)"},
                 {"Métrica": "Método de Agregación", "Valor": "Media Geométrica Ponderada (Weighted AIJ)"}
             ]
+            if ai_insight:
+                summary_info.append({"Métrica": "Síntesis Ejecutiva (IA)", "Valor": ai_insight})
+                
             pd.DataFrame(summary_info).to_excel(writer, sheet_name="Consenso Grupal", index=False, startrow=0)
             
             # Group Weights Table

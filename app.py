@@ -10,6 +10,7 @@ from decision_engine.scenario_manager import ScenarioManager
 from decision_engine.group_ahp import GroupDecisionEngine
 from decision_engine.anp import ANPEngine
 from decision_engine.case_repository import CaseRepository
+from decision_engine.ai_analyst import AIExecutiveAnalyst
 import json
 from datetime import datetime
 
@@ -1688,12 +1689,50 @@ def render_group_ahp():
                         comp_dict["🏆 CONSENSO"] = [f"{results['weights'].get(c, 0.0)*100:.2f}%" for c in criteria_names]
                         st.dataframe(pd.DataFrame(comp_dict), use_container_width=True)
 
+                    # AI Decision Intelligence Agent Section
+                    st.markdown("---")
+                    st.markdown("### 🧠 Interpretación Estratégica con Agente de IA")
+                    st.caption("Síntesis narrativa ejecutiva (consenso, posturas divergentes y consistencia lógica) optimizada para ultra-bajo costo:")
+                    
+                    with st.expander("⚙️ Configuración del Asistente IA (Opcional)", expanded=False):
+                        st.write("Si no ingresas ninguna clave, se utilizará el **Motor Heurístico Local (Cero Costo / 100% Gratis)**.")
+                        user_api_key = st.text_input(
+                            "API Key (Gemini o OpenAI) [Opcional si configuraste GEMINI_API_KEY en Railway]",
+                            type="password",
+                            value=os.getenv("GEMINI_API_KEY", ""),
+                            help="Puedes obtener una clave gratuita en Google AI Studio (aistudio.google.com)"
+                        )
+                        model_provider = st.selectbox("Proveedor de IA", ["Google Gemini (Recomendado / Ultra-económico)", "OpenAI (GPT-4o-mini)"])
+                        provider_key = "gemini" if "Gemini" in model_provider else "openai"
+
+                    ai_text_state_key = f"ai_narrative_{len(judge_names)}_{results.get('num_judges_pairwise', 0)}"
+                    if st.button("✨ Generar Síntesis Ejecutiva con IA", type="secondary"):
+                        with st.spinner("Analizando consenso grupal y patrones de evaluación..."):
+                            insight_text, engine_used = AIExecutiveAnalyst.analyze(
+                                results, 
+                                criteria_names, 
+                                judge_names,
+                                api_key=user_api_key if user_api_key.strip() else None,
+                                provider=provider_key
+                            )
+                            st.session_state[ai_text_state_key] = (insight_text, engine_used)
+
+                    saved_insight = st.session_state.get(ai_text_state_key)
+                    if saved_insight:
+                        insight_text, engine_used = saved_insight
+                        st.markdown(f"> **Motor utilizado:** *{engine_used}*")
+                        st.info(insight_text)
+                    else:
+                        insight_text = None
+
                     # Export Section (Excel and CSV)
                     st.markdown("---")
                     st.markdown("### 📥 Descarga de Reportes y Datos")
                     col_dl1, col_dl2 = st.columns(2)
                     with col_dl1:
-                        excel_data = ScenarioManager.export_group_analysis_excel(results, criteria_names, judge_names)
+                        excel_data = ScenarioManager.export_group_analysis_excel(
+                            results, criteria_names, judge_names, ai_insight=insight_text
+                        )
                         st.download_button(
                             label="📊 Descargar Reporte Completo en Excel (.xlsx)",
                             data=excel_data,

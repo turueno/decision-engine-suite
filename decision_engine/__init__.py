@@ -6,3 +6,4 @@ from .scenario_manager import ScenarioManager
 from .group_ahp import GroupDecisionEngine
 from .anp import ANPEngine
 from .case_repository import CaseRepository
+from .ai_analyst import AIExecutiveAnalyst
