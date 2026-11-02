@@ -1645,6 +1645,10 @@ def render_group_ahp():
             
             st.markdown("---")
             
+            # Session State for Group Calculation Results Persistence
+            if "group_calculation_results" not in st.session_state:
+                st.session_state.group_calculation_results = None
+
             if st.button("Aggregate & Calculate"):
                 group_engine = GroupDecisionEngine(
                     matrices=pairwise_matrices if pairwise_matrices else None,
@@ -1654,6 +1658,17 @@ def render_group_ahp():
                     force_fuzzy=use_fuzzy_mode
                 )
                 results = group_engine.get_results(judge_names=judge_names)
+                st.session_state.group_calculation_results = results
+                st.session_state.group_calc_meta = {
+                    "criteria_names": criteria_names,
+                    "judge_names": judge_names
+                }
+
+            if st.session_state.get("group_calculation_results"):
+                results = st.session_state.group_calculation_results
+                meta = st.session_state.get("group_calc_meta", {})
+                criteria_names = meta.get("criteria_names", criteria_names)
+                judge_names = meta.get("judge_names", judge_names)
                 
                 st.subheader("Group Results")
                 
