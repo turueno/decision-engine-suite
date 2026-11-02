@@ -1630,6 +1630,19 @@ def render_group_ahp():
                     w_val = st.slider(f"{j_name}", min_value=0.1, max_value=2.0, value=1.0, step=0.1, key=f"jw_{idx}")
                     judge_weights_input.append(w_val)
                     
+            # Method Selector: Standard AHP vs Fuzzy AHP (Buckley)
+            st.markdown("### 🔬 Método de Resolución Grupal")
+            method_choice = st.radio(
+                "Selecciona el enfoque de agregación para las comparaciones pareadas:",
+                [
+                    "AHP Estándar (Saaty - Media Geométrica Clásica)",
+                    "Fuzzy AHP (Tratamiento Difuso de Incertidumbre - Método de Buckley con TFNs)"
+                ],
+                index=0,
+                help="Fuzzy AHP convierte los juicios 1-9 en Números Difusos Triangulares para amortiguar la ambigüedad y entregar rangos de tolerancia (L, M, U)."
+            )
+            use_fuzzy_mode = "Fuzzy" in method_choice
+            
             st.markdown("---")
             
             if st.button("Aggregate & Calculate"):
@@ -1637,7 +1650,8 @@ def render_group_ahp():
                     matrices=pairwise_matrices if pairwise_matrices else None,
                     decision_matrices=decision_matrices if decision_matrices else None,
                     criteria_names=criteria_names,
-                    judge_weights=judge_weights_input
+                    judge_weights=judge_weights_input,
+                    force_fuzzy=use_fuzzy_mode
                 )
                 results = group_engine.get_results(judge_names=judge_names)
                 
@@ -1647,12 +1661,27 @@ def render_group_ahp():
                 if "weights" in results:
                     st.markdown("### Aggregated Weights (Geometric Mean)")
                     if results.get("is_fuzzy"):
-                        st.caption("Derived from Fuzzy AHP aggregation")
+                        st.info("ℹ️ **Cálculo realizado con Fuzzy AHP (Método de Buckley con TFNs)**. La ambigüedad de los juicios fue modelada mediante números triangulares.")
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        weights_df = pd.DataFrame(list(results['weights'].items()), columns=['Criterion', 'Weight'])
-                        st.dataframe(weights_df)
+                        if results.get("is_fuzzy") and results.get("fuzzy_weights"):
+                            # Show crisp + fuzzy intervals (L, M, U)
+                            fw = results["fuzzy_weights"]
+                            f_rows = []
+                            for c in criteria_names:
+                                tfn = fw.get(c, (0, 0, 0))
+                                f_rows.append({
+                                    "Criterio": c,
+                                    "Peso Desfuzzificado": f"{results['weights'][c]*100:.2f}%",
+                                    "Límite Inf (L)": f"{tfn[0]*100:.2f}%",
+                                    "Modal (M)": f"{tfn[1]*100:.2f}%",
+                                    "Límite Sup (U)": f"{tfn[2]*100:.2f}%"
+                                })
+                            st.dataframe(pd.DataFrame(f_rows), use_container_width=True)
+                        else:
+                            weights_df = pd.DataFrame(list(results['weights'].items()), columns=['Criterion', 'Weight'])
+                            st.dataframe(weights_df)
                     with col2:
                         cr_val = results['consistency_ratio']
                         st.metric("Group Consistency Ratio", f"{cr_val:.4f}")

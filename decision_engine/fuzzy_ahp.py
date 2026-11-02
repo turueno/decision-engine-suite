@@ -14,7 +14,18 @@ class FuzzyAHPEngine:
         """
         self.input_type = input_type
         if input_type == "fuzzy":
-            self.fuzzy_matrix = np.array(criteria_matrix, dtype=float)
+            # Handle both (n, n, 3) float arrays and (n, n) object arrays of 3-tuples
+            mat_raw = np.array(criteria_matrix)
+            if mat_raw.ndim == 2 and isinstance(mat_raw[0, 0], (tuple, list, np.ndarray)):
+                n_dim = mat_raw.shape[0]
+                converted = np.zeros((n_dim, n_dim, 3), dtype=float)
+                for r in range(n_dim):
+                    for c in range(n_dim):
+                        tup = mat_raw[r, c]
+                        converted[r, c] = [float(tup[0]), float(tup[1]), float(tup[2])]
+                self.fuzzy_matrix = converted
+            else:
+                self.fuzzy_matrix = np.array(criteria_matrix, dtype=float)
             self.n = self.fuzzy_matrix.shape[0]
         else:
             self.crisp_matrix = np.array(criteria_matrix, dtype=float)
@@ -125,6 +136,7 @@ class FuzzyAHPEngine:
         
         # Normalize to ensure sum is 1 (usually it's close but good to normalize)
         self.weights = self.weights / self.weights.sum()
+        self.fuzzy_weights = dict(zip(self.criteria_names, fuzzy_weights))
         
         return self.weights
 
@@ -134,5 +146,6 @@ class FuzzyAHPEngine:
             
         return {
             "weights": dict(zip(self.criteria_names, self.weights)),
+            "fuzzy_weights": getattr(self, "fuzzy_weights", {}),
             "method": "Fuzzy AHP (Buckley's Geometric Mean)"
         }

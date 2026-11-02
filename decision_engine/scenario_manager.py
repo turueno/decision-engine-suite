@@ -217,17 +217,25 @@ class ScenarioManager:
             
             # Group Weights Table
             disp = results.get("criteria_dispersion", {})
+            fuzzy_w = results.get("fuzzy_weights", {})
+            is_fuzzy = results.get("is_fuzzy", False)
             rows_w = []
             for c in criteria_names:
                 w_val = group_weights.get(c, 0.0)
                 disp_info = disp.get(c, {})
-                rows_w.append({
+                row_item = {
                     "Criterio": c,
                     "Peso Grupal": w_val,
                     "Peso Grupal (%)": f"{w_val * 100:.2f}%",
                     "Desviación Estándar": round(disp_info.get("std", 0.0), 4),
                     "Nivel de Acuerdo": disp_info.get("agreement_level", "N/A")
-                })
+                }
+                if is_fuzzy and c in fuzzy_w:
+                    tfn = fuzzy_w[c]
+                    row_item["Límite Inferior (L)"] = f"{tfn[0]*100:.2f}%"
+                    row_item["Valor Modal (M)"] = f"{tfn[1]*100:.2f}%"
+                    row_item["Límite Superior (U)"] = f"{tfn[2]*100:.2f}%"
+                rows_w.append(row_item)
             df_group_w = pd.DataFrame(rows_w)
             df_group_w.to_excel(writer, sheet_name="Consenso Grupal", index=False, startrow=len(summary_info) + 2)
             

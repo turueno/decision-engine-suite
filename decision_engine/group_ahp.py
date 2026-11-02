@@ -3,9 +3,9 @@ from .ahp import AHPEngine
 from .fuzzy_ahp import FuzzyAHPEngine
 
 class GroupDecisionEngine:
-    def __init__(self, matrices=None, decision_matrices=None, criteria_names=None, alternatives=None, judge_weights=None):
+    def __init__(self, matrices=None, decision_matrices=None, criteria_names=None, alternatives=None, judge_weights=None, force_fuzzy=False):
         """
-        Initialize Group Decision Engine with optional judge weighting.
+        Initialize Group Decision Engine with optional judge weighting and method mode.
         
         Args:
             matrices (list): List of pairwise comparison matrices (crisp or fuzzy).
@@ -13,16 +13,19 @@ class GroupDecisionEngine:
             criteria_names (list): Names of criteria.
             alternatives (list): Names of alternatives.
             judge_weights (list or np.ndarray): Weights indicating importance of each judge.
+            force_fuzzy (bool): If True, converts crisp 1-9 matrices to TFNs for Buckley Fuzzy AHP.
         """
         self.matrices = matrices
         self.decision_matrices = decision_matrices
         self.criteria_names = criteria_names
         self.alternatives = alternatives
         self.judge_weights = judge_weights
+        self.force_fuzzy = force_fuzzy
         
         self.aggregated_matrix = None
         self.aggregated_decision_matrix = None
         self.weights = None
+        self.fuzzy_weights = None
         self.consistency_ratio = None
         self.is_consistent = None
         self.is_fuzzy = False
@@ -39,11 +42,41 @@ class GroupDecisionEngine:
             return np.ones(num_judges) / num_judges
         return weights / total
 
+    def _fuzzify_crisp_matrix(self, crisp_mat):
+        """Converts a crisp (1-9) matrix into a matrix of TFNs (l, m, u)."""
+        n = len(crisp_mat)
+        tfn_scale = {
+            1: (1.0, 1.0, 1.0),
+            2: (1.0, 2.0, 3.0),
+            3: (2.0, 3.0, 4.0),
+            4: (3.0, 4.0, 5.0),
+            5: (4.0, 5.0, 6.0),
+            6: (5.0, 6.0, 7.0),
+            7: (6.0, 7.0, 8.0),
+            8: (7.0, 8.0, 9.0),
+            9: (8.0, 9.0, 9.0)
+        }
+        f_mat = np.empty((n, n), dtype=object)
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    f_mat[i, j] = (1.0, 1.0, 1.0)
+                else:
+                    v = float(crisp_mat[i][j])
+                    if v >= 1.0:
+                        val = int(round(v))
+                        f_mat[i, j] = tfn_scale.get(val, (float(val-1), float(val), float(val+1)))
+                    else:
+                        val = int(round(1.0 / v))
+                        l, m, u = tfn_scale.get(val, (float(val-1), float(val), float(val+1)))
+                        f_mat[i, j] = (1.0/u, 1.0/m, 1.0/l)
+        return f_mat
+
     def aggregate_pairwise_matrices(self, judge_weights=None):
         """
         Aggregate individual pairwise matrices using Weighted Geometric Mean (AIJ).
         Formula: a_ij_group = prod( a_ij_k ^ w_k )
-        Supports both Crisp (float) and Fuzzy (tuple/list) matrices.
+        Supports both Crisp (float) and Fuzzy (tuple/list) matrices, and optional force_fuzzy mode.
         """
         if not self.matrices:
             return None
@@ -52,21 +85,31 @@ class GroupDecisionEngine:
         n = len(self.matrices[0])
         w = self._normalize_weights(num_judges, judge_weights)
         
-        # Check if fuzzy (first element of first matrix is a list/tuple/array of size 3)
-        first_val = self.matrices[0][0][1] # Check off-diagonal
-        if isinstance(first_val, (list, tuple, np.ndarray)) and len(first_val) == 3:
+        # Check if matrices are already fuzzy or force_fuzzy is requested
+        first_val = self.matrices[0][0][1]
+        is_already_fuzzy = isinstance(first_val, (list, tuple, np.ndarray)) and len(first_val) == 3
+        
+        if is_already_fuzzy or self.force_fuzzy:
             self.is_fuzzy = True
             agg_matrix = np.empty((n, n), dtype=object)
+            
+            # Prepare fuzzy matrices
+            processed_matrices = []
+            for k in range(num_judges):
+                if is_already_fuzzy:
+                    processed_matrices.append(self.matrices[k])
+                else:
+                    processed_matrices.append(self._fuzzify_crisp_matrix(self.matrices[k]))
             
             for i in range(n):
                 for j in range(n):
                     l_prod, m_prod, u_prod = 1.0, 1.0, 1.0
                     for k in range(num_judges):
-                        val = self.matrices[k][i][j]
+                        val = processed_matrices[k][i][j]
                         wk = w[k]
-                        l_prod *= (val[0] ** wk)
-                        m_prod *= (val[1] ** wk)
-                        u_prod *= (val[2] ** wk)
+                        l_prod *= (float(val[0]) ** wk)
+                        m_prod *= (float(val[1]) ** wk)
+                        u_prod *= (float(val[2]) ** wk)
                     
                     agg_matrix[i, j] = (l_prod, m_prod, u_prod)
         else:
@@ -118,8 +161,17 @@ class GroupDecisionEngine:
             engine = FuzzyAHPEngine(self.aggregated_matrix, self.criteria_names, input_type="fuzzy")
             results = engine.get_results()
             self.weights = results['weights']
-            self.consistency_ratio = results['consistency_ratio']
-            self.is_consistent = results['is_consistent']
+            self.fuzzy_weights = results.get('fuzzy_weights', {})
+            # Compute consistency on defuzzified matrix
+            crisp_rep = np.ones((len(self.aggregated_matrix), len(self.aggregated_matrix)))
+            for r in range(len(self.aggregated_matrix)):
+                for c in range(len(self.aggregated_matrix)):
+                    val = self.aggregated_matrix[r, c]
+                    crisp_rep[r, c] = (val[0] + 4*val[1] + val[2]) / 6.0
+            ahp_check = AHPEngine(crisp_rep, self.criteria_names)
+            res_check = ahp_check.get_results()
+            self.consistency_ratio = res_check['consistency_ratio']
+            self.is_consistent = res_check['is_consistent']
         else:
             engine = AHPEngine(self.aggregated_matrix, self.criteria_names)
             results = engine.get_results()
@@ -216,6 +268,7 @@ class GroupDecisionEngine:
             results["consistency_ratio"] = self.consistency_ratio
             results["is_consistent"] = self.is_consistent
             results["is_fuzzy"] = self.is_fuzzy
+            results["fuzzy_weights"] = getattr(self, "fuzzy_weights", {})
             results["individual_diagnostics"] = self.calculate_individual_diagnostics(judge_names)
             
             # Criteria agreement & dispersion
